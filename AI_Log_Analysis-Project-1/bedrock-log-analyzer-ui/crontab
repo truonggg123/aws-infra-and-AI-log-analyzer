@@ -1,0 +1,1 @@
+*/5 * * * * cd /app && /usr/local/bin/python auto_analyzer.py >> /var/log/auto_analyzer.log 2>&1

@@ -1,9 +1,12 @@
 """
 Streamlit UI for Bedrock Log Analyzer
-Pull logs from CloudWatch and analyze with AI enhancement.
 
-Unified pipeline: auto-adapts based on selected log groups.
-All sources selected by default for maximum AI context.
+Dual-mode interface:
+  1. DASHBOARD MODE: View automated incident results (from auto_analyzer.py cron)
+  2. MANUAL MODE: Run on-demand analysis with custom time range / search term
+
+Auto pipeline runs every 5 minutes via cron (see auto_analyzer.py).
+Streamlit is the optional UI layer for incident review.
 """
 import streamlit as st
 import sys
@@ -27,6 +30,7 @@ from log_preprocessor import LogPreprocessor, build_unified_context, build_deep_
 from models import Metadata, AIInfo, AnalysisResult, GlobalRCA, DeepDiveResult
 from advanced_correlator import AdvancedCorrelator, AdvancedCorrelatedEvent
 from telegram_notifier import TelegramNotifier
+from incident_store import IncidentStore
 
 # Page config
 st.set_page_config(
@@ -95,9 +99,13 @@ st.sidebar.subheader("📂 Log Sources")
 LOG_GROUP_OPTIONS = [
     "/aws/vpc/flowlogs",
     "/aws/cloudtrail/logs",
-    "/aws/ec2/app-tier/streamlit",
+    "/aws/ec2/web-tier/system",
+    "/aws/ec2/web-tier/httpd",
     "/aws/ec2/web-tier/application",
-    "/aws/rds/instance/p1-dev-apse1-db/error",
+    "/aws/ec2/app-tier/system",
+    "/aws/ec2/app-tier/streamlit",
+    "/aws/rds/mysql/error",
+    "/aws/rds/mysql/slowquery",
 ]
 
 selected_log_groups = st.sidebar.multiselect(
@@ -163,15 +171,21 @@ bedrock_model = st.sidebar.selectbox(
 )
 
 # ============================================================
-# MAIN CONTENT
+# MAIN CONTENT — Page Selector
 # ============================================================
 st.title("📊 AI-Powered Log Analysis System")
-st.markdown("🎯 **Unified Analysis Engine** — Auto-detects threats across all selected sources with AI-powered correlation.")
+
+page_mode = st.radio(
+    "Mode",
+    ["🔴 Incident Dashboard", "🔍 Manual Analysis"],
+    horizontal=True,
+    help="Dashboard: xem kết quả auto-scan mỗi 5 phút. Manual: chạy phân tích thủ công."
+)
 
 # ============================================================
-# VALIDATION + ANALYZE
+# MANUAL ANALYSIS MODE
 # ============================================================
-if st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primary"):
+if page_mode == "🔍 Manual Analysis" and st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primary"):
 
     # --- Input validation ---
     validation_errors = []
@@ -189,24 +203,24 @@ if st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primar
         # --- All inputs valid → run analysis ---
         st.session_state.is_analyzing = True
 
-        with st.spinner("Analyzing logs..."):
+        with st.status("🔍 Analyzing logs...", expanded=True) as status:
             try:
                 cw_client = CloudWatchClient(region=aws_region, profile=aws_profile)
                 effective_search = search_term.strip() if search_term and search_term.strip() else None
 
                 if not effective_search:
-                    st.info("🔍 Không có search term → Quét toàn bộ logs để phát hiện bất thường tự động")
+                    st.write("🔍 Không có search term → Quét toàn bộ logs để phát hiện bất thường tự động")
 
                 # ============================================================
                 # Step 1: Pull logs from all selected sources
                 # ============================================================
-                st.info(f"📂 Pulling logs from {len(selected_log_groups)} sources...")
+                st.write(f"📂 Pulling logs from {len(selected_log_groups)} sources...")
                 
                 all_source_logs = {}
                 total_logs_pulled = 0
                 
                 for log_group in selected_log_groups:
-                    st.info(f"  📂 Pulling from {log_group}...")
+                    st.write(f"  📂 Pulling from {log_group}...")
                     raw_logs = cw_client.get_logs(
                         log_group=log_group,
                         start_time=start_dt,
@@ -217,20 +231,21 @@ if st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primar
                     if raw_logs:
                         all_source_logs[log_group] = raw_logs
                         total_logs_pulled += len(raw_logs)
-                        st.success(f"    ✅ {len(raw_logs)} logs from {log_group}")
+                        st.write(f"    ✅ {len(raw_logs)} logs from {log_group}")
                     else:
-                        st.warning(f"    ⚠️ No logs from {log_group}")
+                        st.write(f"    ⚠️ No logs from {log_group}")
                 
                 if total_logs_pulled == 0:
                     st.warning("⚠️ Không tìm thấy logs nào trong khoảng thời gian đã chọn.")
                     st.session_state.is_analyzing = False
+                    status.update(label="⚠️ No logs found", state="error", expanded=True)
                 else:
-                    st.success(f"✅ Total: {total_logs_pulled} logs from {len(all_source_logs)} sources")
+                    st.write(f"✅ Total: {total_logs_pulled} logs from {len(all_source_logs)} sources")
                     
                     # ============================================================
                     # Step 2: Parse + Tag with source
                     # ============================================================
-                    st.info("🔍 Parsing logs...")
+                    st.write("🔍 Parsing logs...")
                     parser = LogParser()
                     all_parsed_entries = []
                     
@@ -241,20 +256,20 @@ if st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primar
                                 entry.component = log_group
                                 all_parsed_entries.append(entry)
                     
-                    st.success(f"✅ Parsed {len(all_parsed_entries)} log entries")
+                    st.write(f"✅ Parsed {len(all_parsed_entries)} log entries")
                     
                     # ============================================================
                     # Step 3: Pattern Analysis (clustering + temporal)
                     # ============================================================
-                    st.info("📊 Analyzing patterns...")
+                    st.write("📊 Analyzing patterns...")
                     analyzer = PatternAnalyzer()
                     analysis = analyzer.analyze_log_entries(all_parsed_entries)
                     
                     reduction_pct = ((len(all_parsed_entries) - len(analysis.error_patterns)) / len(all_parsed_entries) * 100) if all_parsed_entries else 0
-                    st.success(f"✅ Found {len(analysis.error_patterns)} error patterns ({reduction_pct:.1f}% noise reduction)")
+                    st.write(f"✅ Found {len(analysis.error_patterns)} error patterns ({reduction_pct:.1f}% noise reduction)")
                     
                     if analysis.error_patterns:
-                        st.info("🔍 Top Patterns Detected:")
+                        st.write("🔍 Top Patterns Detected:")
                         for i, pattern in enumerate(analysis.error_patterns[:5], 1):
                             preview = pattern.pattern[:80] + "..." if len(pattern.pattern) > 80 else pattern.pattern
                             st.write(f"  {i}. **{preview}** (Count: {pattern.count}, Source: {pattern.component})")
@@ -269,13 +284,13 @@ if st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primar
                     solutions = []
                     
                     if should_skip_layer1:
-                        st.info("⏭️ Skipping rule-based detection (AI enabled, will use comprehensive analysis)")
+                        st.write("⏭️ Skipping rule-based detection (AI enabled, will use comprehensive analysis)")
                     else:
-                        st.info("🎯 Running rule-based detection...")
+                        st.write("🎯 Running rule-based detection...")
                         detector = RuleBasedDetector()
                         issues = detector.detect_issues(analysis)
                         solutions = detector.generate_basic_solutions(issues)
-                        st.success(f"✅ Detected {len(issues)} rule-based issues")
+                        st.write(f"✅ Detected {len(issues)} rule-based issues")
                     
                     # ============================================================
                     # Step 4b: Cross-source Correlation (auto when 2+ sources)
@@ -283,8 +298,7 @@ if st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primar
                     correlated_events = []
                     
                     if len(all_source_logs) >= 2:
-                        st.divider()
-                        st.info("🔗 Running cross-source correlation (Advanced)...")
+                        st.write("🔗 Running cross-source correlation (Advanced)...")
                         
                         rules_path = os.path.join(os.path.dirname(__file__), 'correlation_rules.json')
                         correlator = AdvancedCorrelator(rules_config_path=rules_path)
@@ -296,14 +310,14 @@ if st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primar
                         )
                         
                         st.session_state.advanced_correlated_events = correlated_events
-                        st.success(f"✅ Found {len(correlated_events)} correlated attack patterns")
+                        st.write(f"✅ Found {len(correlated_events)} correlated attack patterns")
                     else:
                         st.session_state.advanced_correlated_events = []
                     
                     # ============================================================
                     # Step 5: Build Unified Context (Event Abstraction Layer)
                     # ============================================================
-                    st.info("⚡ Building unified context with event signals...")
+                    st.write("⚡ Building unified context with event signals...")
                     
                     # Group entries by source for per-source analysis
                     per_source_entries = {}
@@ -323,7 +337,7 @@ if st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primar
                         time_range_str=time_range_str,
                     )
                     
-                    st.success(
+                    st.write(
                         f"✅ Unified context ready — {len(unified_ctx.get('signals', []))} event signals, "
                         f"{len(unified_ctx.get('suspicious_ips', []))} suspicious IPs, "
                         f"{unified_ctx.get('correlation_count', 0)} correlated attacks"
@@ -333,9 +347,10 @@ if st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primar
                     # Step 6: Global RCA (1 AI call for full picture)
                     # ============================================================
                     ai_info = None
+                    global_rca = None
                     
                     if enable_ai:
-                        st.info("🤖 Running Global Root Cause Analysis (1 comprehensive AI call)...")
+                        st.write("🤖 Running Global Root Cause Analysis (1 comprehensive AI call)...")
                         enhancer = BedrockEnhancer(region=aws_region, model=bedrock_model)
                         
                         if enhancer.is_available():
@@ -344,16 +359,16 @@ if st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primar
                                 st.session_state.global_rca = global_rca
                                 
                                 if usage_stats.get("error"):
-                                    st.error(f"❌ {usage_stats['error']}")
+                                    st.write(f"❌ {usage_stats['error']}")
                                     ai_info = AIInfo(ai_enhancement_used=False)
                                     
                                     # Fallback to Layer 1 if AI failed and we skipped it earlier
                                     if not issues:
-                                        st.warning("🔄 Falling back to rule-based detection...")
+                                        st.write("🔄 Falling back to rule-based detection...")
                                         detector = RuleBasedDetector()
                                         issues = detector.detect_issues(analysis)
                                         solutions = detector.generate_basic_solutions(issues)
-                                        st.success(f"✅ Fallback complete: {len(issues)} issues detected")
+                                        st.write(f"✅ Fallback complete: {len(issues)} issues detected")
                                 else:
                                     ai_info = AIInfo(
                                         ai_enhancement_used=True,
@@ -362,29 +377,29 @@ if st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primar
                                         estimated_total_cost=usage_stats.get("estimated_total_cost"),
                                         api_calls_made=usage_stats.get("api_calls_made")
                                     )
-                                    st.success(f"✅ Global RCA complete (Cost: ${ai_info.estimated_total_cost:.4f}, 1 API call)")
+                                    st.write(f"✅ Global RCA complete (Cost: ${ai_info.estimated_total_cost:.4f}, 1 API call)")
                             except Exception as e:
-                                st.error(f"❌ AI analysis failed: {str(e)}")
+                                st.write(f"❌ AI analysis failed: {str(e)}")
                                 ai_info = AIInfo(ai_enhancement_used=False)
                                 
                                 # Fallback to Layer 1 if AI failed and we skipped it earlier
                                 if not issues:
-                                    st.warning("🔄 Falling back to rule-based detection...")
+                                    st.write("🔄 Falling back to rule-based detection...")
                                     detector = RuleBasedDetector()
                                     issues = detector.detect_issues(analysis)
                                     solutions = detector.generate_basic_solutions(issues)
-                                    st.success(f"✅ Fallback complete: {len(issues)} issues detected")
+                                    st.write(f"✅ Fallback complete: {len(issues)} issues detected")
                         else:
-                            st.warning("⚠️ AWS Bedrock not available")
+                            st.write("⚠️ AWS Bedrock not available")
                             ai_info = AIInfo(ai_enhancement_used=False)
                             
                             # Fallback to Layer 1 if Bedrock not available and we skipped it earlier
                             if not issues:
-                                st.warning("🔄 Falling back to rule-based detection...")
+                                st.write("🔄 Falling back to rule-based detection...")
                                 detector = RuleBasedDetector()
                                 issues = detector.detect_issues(analysis)
                                 solutions = detector.generate_basic_solutions(issues)
-                                st.success(f"✅ Fallback complete: {len(issues)} issues detected")
+                                st.write(f"✅ Fallback complete: {len(issues)} issues detected")
                     else:
                         ai_info = AIInfo(ai_enhancement_used=False)
                     
@@ -409,14 +424,14 @@ if st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primar
                     )
                     
                     st.session_state.analysis_result = results
-                    st.success("✅ Analysis complete!")
+                    st.write("✅ Analysis complete!")
                     
                     # ============================================================
                     # Step 8: Send Telegram Alert (if enabled and attack detected)
                     # ============================================================
                     # Send alert if we have Global RCA (regardless of correlation)
                     if global_rca:
-                        st.info("📱 Sending Telegram alert...")
+                        st.write("📱 Sending Telegram alert...")
                         try:
                             notifier = TelegramNotifier()
                             
@@ -430,18 +445,20 @@ if st.sidebar.button("🚀 Analyze Logs", use_container_width=True, type="primar
                                 analysis_metadata=alert_metadata
                             )
                             if alert_sent:
-                                st.success("✅ Telegram alert sent successfully!")
+                                st.write("✅ Telegram alert sent successfully!")
                             else:
-                                st.warning("⚠️ Telegram alert not sent (check configuration)")
+                                st.write("⚠️ Telegram alert not sent (check configuration)")
                         except Exception as telegram_error:
-                            st.error(f"⚠️ Telegram alert failed: {telegram_error}")
-                            import traceback
                             st.code(traceback.format_exc())
+                            
+                    # Update status to complete and COLLAPSE it to save screen space
+                    status.update(label="✅ Analysis complete!", state="complete", expanded=False)
 
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
                 import traceback
                 st.error(traceback.format_exc())
+                status.update(label="❌ Analysis failed", state="error", expanded=True)
             finally:
                 st.session_state.is_analyzing = False
 
@@ -850,3 +867,279 @@ else:
                         if dd.tokens_used:
                             st.caption(f"Tokens: {dd.tokens_used} | Cost: ${dd.cost:.4f}")
 
+
+# ============================================================
+# INCIDENT DASHBOARD RENDERING
+# ============================================================
+
+def _render_incident_dashboard():
+    """Render the Incident Dashboard — reads auto-generated results from disk."""
+    store = IncidentStore()
+    stats = store.get_summary_stats()
+
+    # --- Dashboard Tabs ---
+    dash_tab1, dash_tab2, dash_tab3 = st.tabs([
+        "🔴 Live Incidents",
+        "📊 Timeline",
+        "⚙️ System Status",
+    ])
+
+    # ========================
+    # TAB 1: Live Incidents
+    # ========================
+    with dash_tab1:
+        st.subheader("🔴 Live Incidents")
+        st.caption("Kết quả từ auto-analyzer pipeline (chạy mỗi 5 phút)")
+
+        # Auto-refresh
+        auto_refresh = st.checkbox("Auto-refresh (30s)", value=False)
+        if auto_refresh:
+            import time
+            st.empty()
+            time.sleep(0.1)  # Prevent immediate re-render
+            st.rerun()  # Streamlit >= 1.27
+
+        # Summary row
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Today Incidents", stats.get("today_incidents", 0))
+        with col2:
+            st.metric("Today Batches", stats.get("today_batches", 0))
+        with col3:
+            st.metric("Total Incidents", stats.get("incident_count", 0))
+        with col4:
+            st.metric("Total Cost", f"${stats.get('total_cost_usd', 0):.4f}")
+
+        st.divider()
+
+        # List incidents
+        incidents = store.list_incidents(last_n=30, status_filter="incident")
+
+        if not incidents:
+            st.info("✅ Không có incident nào. Hệ thống đang hoạt động bình thường.")
+            st.caption("Auto-analyzer chạy mỗi 5 phút. Nếu phát hiện anomaly, incident sẽ hiển thị tại đây.")
+        else:
+            for i, inc in enumerate(incidents):
+                severity = inc.get("severity", "Unknown")
+                sev_icon = {
+                    "Critical": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🟢"
+                }.get(severity, "⚪")
+
+                batch_id = inc.get("batch_id", "?")
+                attack = inc.get("attack_narrative", "No narrative")
+                sources = inc.get("sources_analyzed", [])
+                corr_count = inc.get("correlated_events_count", 0)
+                signals_count = inc.get("signals_count", 0)
+                tg = "✅ Sent" if inc.get("telegram_sent") else "—"
+
+                with st.expander(
+                    f"{sev_icon} [{batch_id}] {severity} — {attack[:80]}",
+                    expanded=(i == 0),
+                ):
+                    # Metrics
+                    mc1, mc2, mc3, mc4 = st.columns(4)
+                    with mc1:
+                        st.metric("Logs Analyzed", inc.get("total_logs_analyzed", 0))
+                    with mc2:
+                        st.metric("Signals", signals_count)
+                    with mc3:
+                        st.metric("Correlations", corr_count)
+                    with mc4:
+                        st.metric("Telegram", tg)
+
+                    # Root cause
+                    root_cause = inc.get("root_cause", "")
+                    if root_cause:
+                        st.error(f"**Root Cause:** {root_cause}")
+
+                    # Sources
+                    if sources:
+                        st.markdown(f"**Sources:** {', '.join(s.split('/')[-1] for s in sources)}")
+
+                    # Full details button
+                    if st.button(f"📄 View Full Report", key=f"view_{i}"):
+                        full_data = store.load_incident(inc["filepath"])
+                        if full_data:
+                            _render_full_incident(full_data)
+
+    # ========================
+    # TAB 2: Timeline
+    # ========================
+    with dash_tab2:
+        st.subheader("📊 Batch Timeline")
+        st.caption("Lịch sử tất cả các batch (incidents + clean)")
+
+        all_batches = store.list_incidents(last_n=100)
+
+        if not all_batches:
+            st.info("Chưa có dữ liệu batch nào. Auto-analyzer sẽ bắt đầu tạo dữ liệu sau khi deploy.")
+        else:
+            # Timeline table
+            table_data = []
+            for batch in all_batches:
+                status = batch.get("status", "unknown")
+                status_icon = "🔴" if status == "incident" else "🟢"
+                table_data.append({
+                    "Status": f"{status_icon} {status}",
+                    "Batch ID": batch.get("batch_id", "?"),
+                    "Logs": batch.get("total_logs_analyzed", 0),
+                    "Signals": batch.get("signals_count", 0),
+                    "Correlations": batch.get("correlated_events_count", 0),
+                    "Severity": batch.get("severity", "N/A"),
+                    "Telegram": "✅" if batch.get("telegram_sent") else "—",
+                    "Cost": f"${batch.get('cost', {}).get('usd', 0):.4f}",
+                })
+
+            st.dataframe(table_data, use_container_width=True, hide_index=True)
+
+            # Stats
+            st.divider()
+            incident_batches = [b for b in all_batches if b.get("status") == "incident"]
+            clean_batches = [b for b in all_batches if b.get("status") == "clean"]
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Batches", len(all_batches))
+            with col2:
+                st.metric("Incidents", len(incident_batches))
+            with col3:
+                pct = (len(incident_batches) / len(all_batches) * 100) if all_batches else 0
+                st.metric("Incident Rate", f"{pct:.1f}%")
+
+    # ========================
+    # TAB 3: System Status
+    # ========================
+    with dash_tab3:
+        st.subheader("⚙️ System Status")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("### Pipeline Status")
+            last_batch = stats.get("last_batch")
+            if last_batch:
+                st.success(f"✅ Last batch: {last_batch.get('batch_id', '?')}")
+                st.write(f"Status: **{last_batch.get('status', '?').upper()}**")
+                st.write(f"Logs analyzed: **{last_batch.get('total_logs_analyzed', 0)}**")
+            else:
+                st.warning("⚠️ No batch data yet — waiting for first cron run")
+
+            st.divider()
+            st.markdown("### Configuration")
+            st.write(f"Interval: **{os.getenv('AUTO_ANALYSIS_INTERVAL_MINUTES', '5')} minutes**")
+            st.write(f"Retention: **{os.getenv('INCIDENT_RETENTION_DAYS', '7')} days**")
+            st.write(f"Bedrock Model: **{os.getenv('AUTO_BEDROCK_MODEL', 'N/A')}**")
+            st.write(f"Data Directory: `{os.getenv('INCIDENT_DATA_DIR', '/data/incidents')}`")
+
+        with col2:
+            st.markdown("### Cumulative Stats")
+            st.metric("Total Batches", stats.get("total_batches", 0))
+            st.metric("Incidents Detected", stats.get("incident_count", 0))
+            st.metric("Clean Batches", stats.get("clean_count", 0))
+            st.metric("Telegram Alerts Sent", stats.get("telegram_alerts_sent", 0))
+            st.metric("Total Cost", f"${stats.get('total_cost_usd', 0):.4f}")
+            st.metric("Total Logs Analyzed", f"{stats.get('total_logs_analyzed', 0):,}")
+
+        st.divider()
+        st.markdown("### Log Groups Monitored")
+        log_groups = os.getenv("AUTO_ANALYSIS_LOG_GROUPS", "").split(",")
+        for lg in log_groups:
+            if lg.strip():
+                st.write(f"  📂 `{lg.strip()}`")
+
+
+def _render_full_incident(data: dict):
+    """Render full incident details from stored JSON."""
+    st.divider()
+    st.subheader(f"📄 Full Report — {data.get('batch_id', '?')}")
+
+    # Global RCA
+    rca = data.get("global_rca")
+    if rca:
+        # Incident Story
+        if rca.get("incident_story"):
+            st.markdown("### 🚨 Incident Story")
+            for step in rca["incident_story"]:
+                st.markdown(f"- {step}")
+
+        # Threat Assessment
+        ta = rca.get("threat_assessment", {})
+        if ta:
+            st.markdown("### 🎯 Threat Assessment")
+            tc1, tc2 = st.columns(2)
+            with tc1:
+                sev = ta.get("severity", "Unknown")
+                sev_icon = {"Critical": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🟢"}.get(sev, "⚪")
+                st.metric("Severity", f"{sev_icon} {sev}")
+            with tc2:
+                conf = ta.get("confidence", 0)
+                st.metric("Confidence", f"{conf * 100:.0f}%" if isinstance(conf, float) else str(conf))
+            if ta.get("reasoning"):
+                st.info(ta["reasoning"])
+
+        # Attack Narrative
+        if rca.get("attack_narrative"):
+            st.markdown("### 📖 Attack Narrative")
+            st.warning(rca["attack_narrative"])
+
+        # Root Cause
+        if rca.get("root_cause"):
+            st.markdown("### 🔍 Root Cause")
+            st.error(rca["root_cause"])
+
+        # 5 Why Analysis
+        rca_analysis = rca.get("raw_ai_response", {}).get("root_cause_analysis", {})
+        if rca_analysis:
+            with st.expander("📊 5 Why Analysis", expanded=True):
+                for i in range(1, 6):
+                    why_key = f"why_{i}"
+                    if why_key in rca_analysis:
+                        why_item = rca_analysis[why_key]
+                        q = why_item.get("question", f"Why #{i}?")
+                        a = why_item.get("answer", "N/A")
+                        ev = why_item.get("evidence", "")
+                        if i <= 2:
+                            st.info(f"**WHY #{i}:** {q}\n\n→ {a}")
+                        elif i <= 4:
+                            st.warning(f"**WHY #{i}:** {q}\n\n→ {a}")
+                        else:
+                            st.error(f"**WHY #{i}:** {q}\n\n→ ⭐ {a}")
+                        if ev:
+                            st.caption(f"📋 Evidence: {ev}")
+
+        # Immediate Actions
+        if rca.get("immediate_actions"):
+            st.markdown("### 🔥 Immediate Actions")
+            for action in rca["immediate_actions"]:
+                priority = action.get("priority", "P2")
+                st.warning(f"**[{priority}]** {action.get('action', 'N/A')}")
+                if action.get("command"):
+                    st.code(action["command"], language="bash")
+
+    # Correlated Events
+    corr = data.get("correlated_events", [])
+    if corr:
+        st.markdown("### 🔗 Correlated Attacks")
+        for ev in corr:
+            st.markdown(
+                f"- **{ev.get('attack_name', '?')}** "
+                f"(Confidence: {ev.get('confidence', 0):.1f}%, "
+                f"Severity: {ev.get('severity', '?')}, "
+                f"Sources: {', '.join(ev.get('sources', []))})"
+            )
+
+    # Signals
+    signals = data.get("signals", [])
+    if signals:
+        with st.expander(f"⚡ Event Signals ({len(signals)})"):
+            for sig in signals[:20]:
+                st.write(
+                    f"- [{sig.get('severity', '?')}] {sig.get('event_type', '?')} "
+                    f"(source: {sig.get('source', '?')}, count: {sig.get('count', 0)})"
+                )
+
+
+# ============================================================
+# INCIDENT DASHBOARD MODE (called after functions are defined)
+# ============================================================
+if page_mode == "🔴 Incident Dashboard":
+    _render_incident_dashboard()

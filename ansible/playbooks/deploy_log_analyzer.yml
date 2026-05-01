@@ -3,6 +3,14 @@
   hosts: role_app
   become: yes
   tasks:
+    - name: Create incident data directory
+      file:
+        path: /data/incidents
+        state: directory
+        owner: ec2-user
+        group: ec2-user
+        mode: '0755'
+
     - name: Copy application source code to remote host
       copy:
         src: "{{ playbook_dir }}/../../AI_Log_Analysis-Project-1/bedrock-log-analyzer-ui/"
@@ -29,20 +37,19 @@
       async: 900
       poll: 10
 
-    - name: Run Log Analyzer UI container
+    - name: Run Log Analyzer container (supervisord manages cron + streamlit)
       community.docker.docker_container:
         name: log-analyzer-ui
         image: bedrock-log-analyzer-ui:latest
         state: started
         restart_policy: unless-stopped
         recreate: yes
-        command: >
-          streamlit run streamlit_app.py 
-          --server.port=8501 
-          --server.address=0.0.0.0
-          --server.enableCORS=false
-          --server.enableXsrfProtection=false
         ports:
           - "80:8501"
         volumes:
           - /home/ec2-user/bedrock-log-analyzer-ui/.env:/app/.env:ro
+          - /data/incidents:/data/incidents:rw
+        log_driver: json-file
+        log_options:
+          max-size: "10m"
+          max-file: "3"
