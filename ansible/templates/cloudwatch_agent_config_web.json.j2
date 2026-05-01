@@ -22,27 +22,6 @@
             "timezone": "UTC"
           },
           {
-            "file_path": "/var/log/httpd/access_log",
-            "log_group_name": "/aws/ec2/web-tier/httpd",
-            "log_stream_name": "{instance_id}/access",
-            "retention_in_days": 7,
-            "timezone": "UTC"
-          },
-          {
-            "file_path": "/var/log/httpd/error_log",
-            "log_group_name": "/aws/ec2/web-tier/httpd",
-            "log_stream_name": "{instance_id}/error",
-            "retention_in_days": 7,
-            "timezone": "UTC"
-          },
-          {
-            "file_path": "/var/log/app/*.log",
-            "log_group_name": "/aws/ec2/web-tier/application",
-            "log_stream_name": "{instance_id}/all",
-            "retention_in_days": 14,
-            "timezone": "UTC"
-          },
-          {
             "file_path": "/var/log/app/php-error.log",
             "log_group_name": "/aws/ec2/web-tier/application",
             "log_stream_name": "{instance_id}/php-error",
@@ -58,9 +37,9 @@
           },
           {
             "file_path": "/var/lib/docker/containers/*/*.log",
-            "log_group_name": "/aws/ec2/web-tier/application",
-            "log_stream_name": "{instance_id}/docker",
-            "retention_in_days": 14,
+            "log_group_name": "/aws/ec2/web-tier/httpd",
+            "log_stream_name": "{instance_id}/docker-web",
+            "retention_in_days": 7,
             "timezone": "UTC"
           }
         ]

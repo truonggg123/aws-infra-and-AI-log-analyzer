@@ -35,7 +35,45 @@
         state: directory
         mode: '0755'
 
-    # ── Step 4: Deploy configuration based on role ────────
+    # ── Step 4: Create log directories ────────────────────
+    - name: Create application log directory (Web tier)
+      file:
+        path: /var/log/app
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Create application log files (Web tier)
+      file:
+        path: "{{ item }}"
+        state: touch
+        mode: '0644'
+        owner: root
+        group: root
+      loop:
+        - /var/log/app/php-error.log
+        - /var/log/app/application.log
+      when: "'web' in group_names or 'web' in inventory_hostname or 'l1' in inventory_hostname"
+
+    - name: Create streamlit log directory (App tier)
+      file:
+        path: /var/log/streamlit
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+      when: "'app' in group_names or 'app' in inventory_hostname or 'l2' in inventory_hostname"
+
+    # ── Step 5: Set permissions for Docker log directory ──
+    - name: Ensure CloudWatch Agent can read Docker logs
+      file:
+        path: /var/lib/docker/containers
+        state: directory
+        mode: '0755'
+      ignore_errors: yes
+
+    # ── Step 6: Deploy configuration based on role ────────
     - name: Deploy CloudWatch Agent config for Web tier
       template:
         src: ../templates/cloudwatch_agent_config_web.json.j2
@@ -52,7 +90,7 @@
       when: "'app' in group_names or 'app' in inventory_hostname or 'l2' in inventory_hostname"
       notify: Restart CloudWatch Agent
 
-    # ── Step 5: Start CloudWatch Agent ────────────────────
+    # ── Step 7: Start CloudWatch Agent ────────────────────
     - name: Start CloudWatch Agent with config
       command: >
         /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
@@ -63,7 +101,7 @@
       register: agent_start
       changed_when: "'Configuration validation' in agent_start.stdout"
 
-    # ── Step 6: Verify agent is running ───────────────────
+    # ── Step 8: Verify agent is running ───────────────────
     - name: Check CloudWatch Agent status
       command: >
         /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
@@ -76,16 +114,7 @@
       debug:
         msg: "{{ agent_status.stdout }}"
 
-    # ── Step 7: Create log directories ────────────────────
-    - name: Create application log directory
-      file:
-        path: /var/log/app
-        state: directory
-        mode: '0755'
-        owner: root
-        group: root
-
-    # ── Step 8: Setup log rotation ────────────────────────
+    # ── Step 9: Setup log rotation ────────────────────────
     - name: Configure logrotate for application logs
       copy:
         dest: /etc/logrotate.d/app-logs
@@ -103,18 +132,9 @@
 
   handlers:
     - name: Restart CloudWatch Agent
-      command: >
-        /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
-        -a stop
-        -m ec2
-      ignore_errors: yes
-      changed_when: false
-
-    - name: Start CloudWatch Agent after restart
-      command: >
-        /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
-        -a fetch-config
-        -m ec2
-        -s
-        -c file:{{ cloudwatch_config_path }}
-      changed_when: false
+      shell: |
+        /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop -m ec2 || true
+        sleep 2
+        /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:{{ cloudwatch_config_path }}
+      register: restart_result
+      changed_when: true

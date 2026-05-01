@@ -91,6 +91,25 @@ INSERT INTO classes (class_id, class_code, class_name, subject, lecturer_id, sch
 (5, 'IT005', 'Mạng máy tính', 'Networking Fundamentals', 4, 'Thứ 6, 7:00-9:30', 'C301', 'HK1 2024-2025');
 
 -- =============================================
+-- TABLE: lecturers (Mapping user_id → lecturer_id)
+-- =============================================
+CREATE TABLE lecturers (
+  lecturer_id INT(11) NOT NULL AUTO_INCREMENT,
+  lecturer_code VARCHAR(50) NOT NULL UNIQUE,
+  user_id INT(11) NOT NULL,
+  department VARCHAR(200) DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (lecturer_id),
+  UNIQUE KEY idx_user (user_id),
+  CONSTRAINT fk_lecturers_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO lecturers (lecturer_id, lecturer_code, user_id, department) VALUES
+(1, 'GV001', 2, 'Khoa CNTT'),
+(2, 'GV002', 3, 'Khoa CNTT'),
+(3, 'GV003', 4, 'Khoa CNTT');
+
+-- =============================================
 -- TABLE: students
 -- =============================================
 CREATE TABLE students (
@@ -187,7 +206,7 @@ INSERT INTO grades (student_id, class_id, score, notes, graded_by) VALUES
 -- =============================================
 -- SUMMARY
 -- =============================================
--- Tables created: roles, users, classes, students, enrollments, grades
+-- Tables created: roles, users, classes, lecturers, students, enrollments, grades
 -- Default accounts:
 --   Admin: admin / 123@
 --   Lecturers: gv01, gv02, gv03 / 123@

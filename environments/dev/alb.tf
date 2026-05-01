@@ -16,15 +16,12 @@ resource "aws_lb_listener" "app" {
 	load_balancer_arn = aws_lb.alb.arn
 	port = local.ports.http
 	protocol = "HTTP"
-	default_action {
-	type = "fixed-response"
-	fixed_response {
-		content_type = "text/plain"
-		message_body = "404: Not Found"
-		status_code  = "404"
-	  }
-	}
 
+	# Forward ALL traffic to web app — only 1 target group
+	default_action {
+		type             = "forward"
+		target_group_arn = aws_lb_target_group.qlsv.arn
+	}
 }
 
 # ── Target Group cho Web App QLSV (Port 8080) ────────────────────────
@@ -40,7 +37,7 @@ resource "aws_lb_target_group" "qlsv" {
 		healthy_threshold   = 3
 		interval            = 30
 		matcher             = "200-399"
-		path                = "/" 
+		path                = "/"
 		port                = "traffic-port"
 		protocol            = "HTTP"
 		timeout             = 10
@@ -54,21 +51,4 @@ resource "aws_lb_target_group" "qlsv" {
 	tags = {
 		Name = "${local.name_prefix}-tg-qlsv"
 	}
-}
-
-# ── Điều hướng Path /qlsv/* về Web App QLSV ──────────────────────────
-resource "aws_lb_listener_rule" "qlsv" {
-  listener_arn = aws_lb_listener.app.arn
-  priority     = 100
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.qlsv.id
-  }
-
-  condition {
-    path_pattern {
-      values = ["/qlsv*", "/api/*", "/admin/*", "/assets/*", "/*.php"] 
-    }
-  }
 }
