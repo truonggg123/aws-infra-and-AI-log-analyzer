@@ -188,7 +188,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     ansible role_app -i inventory/aws_ec2.yml -b -B 1800 -P 10 -m shell -a "docker pull $IDS_AI_IMAGE"
     ansible-playbook -i inventory/aws_ec2.yml playbooks/site.yml
     echo "Verifying team IDS AI container..."
-    ansible role_app -i inventory/aws_ec2.yml -m shell -a "docker inspect --format='{{.Config.Image}} {{.State.Status}}' $IDS_AI_CONTAINER" | tee /tmp/ids_ai_verify.txt
+    ansible role_app -i inventory/aws_ec2.yml -m shell -a "docker inspect --format='{% raw %}{{.Config.Image}} {{.State.Status}}{% endraw %}' $IDS_AI_CONTAINER" | tee /tmp/ids_ai_verify.txt
     if ! grep -q "$IDS_AI_IMAGE running" /tmp/ids_ai_verify.txt; then
         print_error "Team IDS AI container is not running with expected image: $IDS_AI_IMAGE"
         exit 1

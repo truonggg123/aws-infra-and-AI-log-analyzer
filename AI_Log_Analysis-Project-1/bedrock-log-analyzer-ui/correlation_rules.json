@@ -21,6 +21,61 @@
       }
     },
     {
+      "rule_id": "R009",
+      "name": "Web Fuzzing / Exploit Probe",
+      "description": "HTTP fuzzing payloads such as SQL injection, path traversal, XSS, or scanner probes against the web application",
+      "required_sources": ["application"],
+      "event_sequence": ["web_fuzzing"],
+      "max_time_gap_seconds": 300,
+      "event_type": "web_fuzzing",
+      "severity": "HIGH",
+      "mitre_tactics": ["TA0001"],
+      "mitre_techniques": ["T1190"],
+      "base_confidence": 92.0,
+      "confidence_modifiers": {
+        "automated": 8.0,
+        "high_frequency": 8.0
+      },
+      "minimum_event_count": 2
+    },
+    {
+      "rule_id": "R010",
+      "name": "Application DoS / HTTP Flood",
+      "description": "High-volume HTTP requests from the same source causing repeated application or HTTP errors",
+      "required_sources": ["application"],
+      "event_sequence": ["http_request"],
+      "max_time_gap_seconds": 60,
+      "event_type": "application_dos",
+      "severity": "CRITICAL",
+      "mitre_tactics": ["TA0040"],
+      "mitre_techniques": ["T1499"],
+      "base_confidence": 70.0,
+      "confidence_modifiers": {
+        "automated": 15.0,
+        "high_frequency": 15.0
+      },
+      "minimum_event_count": 50
+    },
+    {
+      "rule_id": "R011",
+      "name": "Port Scan / Reconnaissance",
+      "description": "Repeated VPC Flow Log rejects from one actor, consistent with network reconnaissance or scanning",
+      "required_sources": ["vpc_flow"],
+      "event_sequence": ["network_reject"],
+      "max_time_gap_seconds": 300,
+      "event_type": "port_scan",
+      "severity": "HIGH",
+      "mitre_tactics": ["TA0043"],
+      "mitre_techniques": ["T1595"],
+      "base_confidence": 78.0,
+      "confidence_modifiers": {
+        "automated": 10.0,
+        "high_frequency": 10.0,
+        "multiple_targets": 10.0
+      },
+      "minimum_event_count": 20
+    },
+    {
       "rule_id": "R002",
       "name": "Privilege Escalation Attempt",
       "description": "API access denied followed by repeated unauthorized access attempts",
@@ -91,7 +146,7 @@
     {
       "rule_id": "R006",
       "name": "Lateral Movement",
-      "description": "Successful access followed by access to multiple resources",
+      "description": "Successful CloudTrail activity followed by accepted network access. Kept conservative to avoid classifying deploy/admin traffic as an attack.",
       "required_sources": ["cloudtrail", "vpc_flow"],
       "event_sequence": ["api_call", "network_accept"],
       "max_time_gap_seconds": 300,
@@ -103,7 +158,8 @@
       "confidence_modifiers": {
         "multiple_targets": 20.0,
         "has_trace_id": 15.0
-      }
+      },
+      "minimum_event_count": 5
     },
     {
       "rule_id": "R007",

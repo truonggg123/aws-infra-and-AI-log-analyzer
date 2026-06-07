@@ -298,18 +298,55 @@ class RuleEngine:
             confidence = self._evaluate_rule(rule, timeline)
             if confidence > 0:
                 matches.append((rule, confidence))
-        
+
+        matches = self._prioritize_contextual_matches(timeline, matches)
         return sorted(matches, key=lambda x: x[1], reverse=True)
+
+    def _prioritize_contextual_matches(
+        self,
+        timeline: List[TimelineEvent],
+        matches: List[Tuple[CorrelationRule, float]]
+    ) -> List[Tuple[CorrelationRule, float]]:
+        """
+        Prefer the most specific web/network signal over weak cross-source IP matches.
+        This prevents deployment/admin CloudTrail noise from masking obvious fuzzing,
+        HTTP flood, brute force, or scanning activity in the UI.
+        """
+        if not matches:
+            return matches
+
+        event_types = [event.event_type for event in timeline]
+        boosted = []
+        for rule, confidence in matches:
+            adjusted = confidence
+            if "web_fuzzing" in event_types and rule.event_type == "web_fuzzing":
+                adjusted += 30.0
+            elif "http_error" in event_types and rule.event_type == "application_dos":
+                adjusted += 15.0
+            elif "network_reject" in event_types and rule.event_type in {"port_scan", "denial_of_service"}:
+                adjusted += 10.0
+
+            # A lone CloudTrail + VPC IP match is weak during deploy/demo traffic.
+            if rule.event_type == "lateral_movement":
+                sources = set(event.source for event in timeline)
+                has_specific_attack_signal = any(
+                    et in event_types
+                    for et in ("web_fuzzing", "sql_injection", "path_traversal", "xss", "brute_force", "port_scan")
+                )
+                if has_specific_attack_signal:
+                    adjusted -= 40.0
+                elif sources == {"cloudtrail", "vpc_flow"}:
+                    adjusted -= 20.0
+
+            boosted.append((rule, max(0.0, min(adjusted, 100.0))))
+
+        return boosted
     
     def _evaluate_rule(self, rule: CorrelationRule, timeline: List[TimelineEvent]) -> float:
         """Evaluate single rule against timeline"""
         # Check if required sources are present
         sources_present = set(event.source for event in timeline)
         
-        # DEBUG
-        if rule.rule_id == 'R001':
-            print(f"R001 checks timeline length {len(timeline)}. Sources present: {sources_present}")
-            
         if not all(src in sources_present for src in rule.required_sources):
             return 0.0
         
@@ -361,25 +398,18 @@ class RuleEngine:
         
         # Find first event of sequence
         seq_idx = 0
-        seen_events = []
         for i, event in enumerate(timeline):
-            seen_events.append(event.event_type)
             if event.event_type == expected_sequence[seq_idx]:
                 seq_idx += 1
                 if seq_idx >= len(expected_sequence):
-                    print(f"Matched sequence {expected_sequence}!")
                     return True
                 
                 # Check time gap to next event
                 if i + 1 < len(timeline):
                     time_gap = (timeline[i + 1].timestamp - event.timestamp).total_seconds()
                     if time_gap > max_gap:
-                        print(f"Gap too large: {time_gap} > {max_gap}")
                         seq_idx = 0  # Reset if gap too large
-        
-        if expected_sequence == ['network_reject', 'sql_injection']:
-            print(f"Timeline seen events: {set(seen_events)}")
-        
+
         return seq_idx >= len(expected_sequence)
     
     def _is_automated(self, timeline: List[TimelineEvent]) -> bool:
@@ -805,13 +835,38 @@ class AdvancedCorrelator:
             return 'database_error'
         
         else:  # application
-            if 'injection' in text:
+            if self._is_web_fuzzing_payload(text):
+                return 'web_fuzzing'
+            elif 'injection' in text:
                 return 'sql_injection'
+            elif 'path traversal' in text or '../' in text or '..\\' in text:
+                return 'path_traversal'
+            elif 'xss' in text or '<script' in text:
+                return 'xss'
+            elif any(marker in text for marker in ('[ssh_brute_force]', 'failed password', 'authentication failed', 'invalid user')):
+                return 'brute_force'
             elif 'timeout' in text:
                 return 'connection_timeout'
             elif 'unauthorized' in text or 'forbidden' in text:
                 return 'unauthorized_access'
+            elif re.search(r'\bhttp\s+[45]\d\d\b', text):
+                return 'http_error'
+            elif re.search(r'\bhttp\s+[123]\d\d\b', text):
+                return 'http_request'
             return 'application_error'
+
+    def _is_web_fuzzing_payload(self, text: str) -> bool:
+        """Detect common web fuzzing, exploit probe, and scanner payloads."""
+        web_fuzz_markers = [
+            'sql_injection', 'path_traversal', '[attack:',
+            'union select', ' or 1=1', "' or '1'='1", '" or "1"="1',
+            '../', '..\\', '/etc/passwd', 'etc/passwd', 'boot.ini',
+            '<script', 'javascript:', 'onerror=', 'onload=',
+            'cmd=', 'exec=', ';cat ', '|cat ', '&&',
+            '.git/', 'wp-admin', 'phpmyadmin', 'xmlrpc.php',
+            'nikto', 'sqlmap', 'acunetix', 'dirbuster', 'gobuster', 'ffuf'
+        ]
+        return any(marker in text for marker in web_fuzz_markers)
     
     def _parse_timestamp(self, timestamp_str: str) -> Optional[datetime]:
         """Parse timestamp string to datetime"""
