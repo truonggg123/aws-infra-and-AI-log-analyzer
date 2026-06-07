@@ -1,5 +1,5 @@
 """
-Streamlit UI for Bedrock Log Analyzer
+Streamlit UI for IDS AI Log Analyzer
 
 Dual-mode interface:
   1. DASHBOARD MODE: View automated incident results (from auto_analyzer.py cron)
@@ -25,7 +25,7 @@ from cloudwatch_client import CloudWatchClient
 from log_parser import LogParser
 from pattern_analyzer import PatternAnalyzer
 from rule_detector import RuleBasedDetector
-from bedrock_enhancer import BedrockEnhancer
+from bedrock_enhancer import IDSAIEnhancer
 from log_preprocessor import LogPreprocessor, build_unified_context, build_deep_dive_context
 from models import Metadata, AIInfo, AnalysisResult, GlobalRCA, DeepDiveResult
 from advanced_correlator import AdvancedCorrelator, AdvancedCorrelatedEvent
@@ -34,7 +34,7 @@ from incident_store import IncidentStore
 
 # Page config
 st.set_page_config(
-    page_title="Bedrock Log Analyzer",
+    page_title="IDS AI Log Analyzer",
     page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -159,15 +159,24 @@ end_dt = datetime.combine(end_date, end_time_input)
 # --- AI Configuration ---
 st.sidebar.subheader("AI Enhancement")
 enable_ai = st.sidebar.checkbox("Enable AI Enhancement", value=True)
-bedrock_model = st.sidebar.selectbox(
-    "Bedrock Model",
+ai_provider_label = st.sidebar.selectbox(
+    "AI Provider",
+    ["Custom IDS API"],
+    index=0,
+)
+ai_provider = "custom"
+custom_ai_url = st.sidebar.text_input(
+    "Custom AI API URL",
+    value=os.getenv("CUSTOM_AI_API_URL") or os.getenv("IDS_LAYERED_API_URL", "http://localhost:8000/analyze"),
+    disabled=False,
+    help="Endpoint exposed by docker.io/nguyencntruong/ids-layered-api:v1.0, for example http://localhost:8000/analyze",
+)
+ai_model = st.sidebar.selectbox(
+    "AI Model",
     [
-        "anthropic.claude-3-haiku-20240307-v1:0", 
-        "apac.anthropic.claude-3-5-sonnet-20240620-v1:0",
-        "apac.anthropic.claude-3-sonnet-20240229-v1:0",
-        "us.anthropic.claude-3-5-sonnet-20240620-v1:0"
+        "ids-layered-api:v1.0",
     ],
-    help="Dùng 'apac.' cho khu vực Singapore (ap-southeast-1) hoặc 'anthropic.claude-3-haiku' bản gốc. Haiku thường luôn chạy ổn trên on-demand."
+    help="Team IDS AI model served by docker.io/nguyencntruong/ids-layered-api:v1.0."
 )
 
 # ============================================================
@@ -277,8 +286,13 @@ if page_mode == "🔍 Manual Analysis" and st.sidebar.button("🚀 Analyze Logs"
                     # ============================================================
                     # Step 4a: Smart Rule-based Detection (skip when AI enabled)
                     # ============================================================
-                    # Smart decision: Skip Layer 1 when AI enabled and Bedrock available
-                    should_skip_layer1 = enable_ai and BedrockEnhancer(region=aws_region, model=bedrock_model).is_available()
+                    # Smart decision: Skip Layer 1 when IDS AI is enabled and configured
+                    should_skip_layer1 = enable_ai and IDSAIEnhancer(
+                        region=aws_region,
+                        model=ai_model,
+                        provider=ai_provider,
+                        custom_api_url=custom_ai_url,
+                    ).is_available()
                     
                     issues = []
                     solutions = []
@@ -351,7 +365,12 @@ if page_mode == "🔍 Manual Analysis" and st.sidebar.button("🚀 Analyze Logs"
                     
                     if enable_ai:
                         st.write("🤖 Running Global Root Cause Analysis (1 comprehensive AI call)...")
-                        enhancer = BedrockEnhancer(region=aws_region, model=bedrock_model)
+                        enhancer = IDSAIEnhancer(
+                            region=aws_region,
+                            model=ai_model,
+                            provider=ai_provider,
+                            custom_api_url=custom_ai_url,
+                        )
                         
                         if enhancer.is_available():
                             try:
@@ -390,10 +409,10 @@ if page_mode == "🔍 Manual Analysis" and st.sidebar.button("🚀 Analyze Logs"
                                     solutions = detector.generate_basic_solutions(issues)
                                     st.write(f"✅ Fallback complete: {len(issues)} issues detected")
                         else:
-                            st.write("⚠️ AWS Bedrock not available")
+                            st.write("⚠️ Team IDS AI API not configured")
                             ai_info = AIInfo(ai_enhancement_used=False)
                             
-                            # Fallback to Layer 1 if Bedrock not available and we skipped it earlier
+                            # Fallback to Layer 1 if IDS AI is not available and we skipped it earlier
                             if not issues:
                                 st.write("🔄 Falling back to rule-based detection...")
                                 detector = RuleBasedDetector()
@@ -838,7 +857,12 @@ else:
                                 global_rca_summary=rca_summary,
                             )
                             
-                            enhancer = BedrockEnhancer(region=aws_region, model=bedrock_model)
+                            enhancer = IDSAIEnhancer(
+                                region=aws_region,
+                                model=ai_model,
+                                provider=ai_provider,
+                                custom_api_url=custom_ai_url,
+                            )
                             dd_result, dd_stats = enhancer.generate_deep_dive(dd_ctx)
                             st.session_state.deep_dive_results[log_group] = dd_result
                     
@@ -1027,7 +1051,7 @@ def _render_incident_dashboard():
             st.markdown("### Configuration")
             st.write(f"Interval: **{os.getenv('AUTO_ANALYSIS_INTERVAL_MINUTES', '5')} minutes**")
             st.write(f"Retention: **{os.getenv('INCIDENT_RETENTION_DAYS', '7')} days**")
-            st.write(f"Bedrock Model: **{os.getenv('AUTO_BEDROCK_MODEL', 'N/A')}**")
+            st.write(f"IDS AI Model: **{os.getenv('AUTO_IDS_AI_MODEL', os.getenv('IDS_AI_MODEL', 'ids-layered-api:v1.0'))}**")
             st.write(f"Data Directory: `{os.getenv('INCIDENT_DATA_DIR', '/data/incidents')}`")
 
         with col2:

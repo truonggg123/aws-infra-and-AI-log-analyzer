@@ -1,9 +1,10 @@
 """
-Bedrock enhancer - Enhance solutions using AWS Bedrock
+IDS AI enhancer - Enhance solutions using the team's self-hosted IDS AI API.
 """
-import boto3
 import json
+import os
 import re
+import requests
 from typing import List, Tuple, Dict
 from models import Solution
 
@@ -12,29 +13,42 @@ from models import Solution
 # Helpers
 # ---------------------------------------------------------------------------
 
-class BedrockEnhancer:
-    """Enhance solutions using AWS Bedrock"""
+class IDSAIEnhancer:
+    """Enhance solutions using the team IDS AI API.
+
+    `BedrockEnhancer` is kept as a compatibility alias at the end of this file.
+    """
     
-    def __init__(self, region: str = "us-east-1", model: str = "us.amazon.nova-micro-v1:0"):
+    def __init__(
+        self,
+        region: str = "us-east-1",
+        model: str = "us.amazon.nova-micro-v1:0",
+        provider: str = None,
+        custom_api_url: str = None,
+        timeout_seconds: int = None,
+    ):
         """
-        Initialize Bedrock enhancer
+        Initialize IDS AI enhancer
         
         Args:
             region: AWS region
-            model: Bedrock model ID
+            model: IDS AI model ID
         """
         self.region = region
         self.model_id = model
+        self.provider = "custom"
+        self.custom_api_url = (
+            custom_api_url
+            or os.getenv("CUSTOM_AI_API_URL")
+            or os.getenv("IDS_LAYERED_API_URL")
+            or "http://localhost:8000/analyze"
+        )
+        self.timeout_seconds = int(timeout_seconds or os.getenv("CUSTOM_AI_TIMEOUT_SECONDS", "120"))
         self.client = None
-        
-        try:
-            self.client = boto3.client('bedrock-runtime', region_name=region)
-        except Exception as e:
-            print(f"Warning: Could not initialize Bedrock client: {e}")
     
     def is_available(self) -> bool:
-        """Check if Bedrock is available"""
-        return self.client is not None
+        """Check if the selected AI provider is configured."""
+        return bool(self.custom_api_url)
     
     def enhance_solutions(
         self, 
@@ -44,7 +58,7 @@ class BedrockEnhancer:
         max_batch_size: int = 1   # 1 issue per call prevents output truncation
     ) -> Tuple[List[Solution], Dict]:
         """
-        Enhance solutions using AWS Bedrock
+        Enhance solutions using the team IDS AI API
         
         Args:
             solutions: List of basic solutions
@@ -58,7 +72,7 @@ class BedrockEnhancer:
         if not self.is_available():
             return solutions, {
                 "ai_enhancement_used": False,
-                "error": "Bedrock client not available"
+                "error": "Team IDS AI API URL not configured"
             }
         
         enhanced_solutions = []
@@ -83,7 +97,7 @@ class BedrockEnhancer:
                 # Truyền thẳng lỗi cho UI hiển thị thay vì âm thầm trả Basic Solutions
                 return solutions, {
                     "ai_enhancement_used": False,
-                    "error": f"Bedrock API Failed: {str(e)}"
+                    "error": f"Team IDS AI API failed: {str(e)}"
                 }
         
         # Safety check: verify that solutions were actually enhanced
@@ -92,12 +106,12 @@ class BedrockEnhancer:
         if not actually_enhanced:
             return enhanced_solutions, {
                 "ai_enhancement_used": False,
-                "error": "Bedrock responded but AI could not parse the response. Solutions shown are basic (non-AI)."
+                "error": "Team IDS AI responded but the app could not parse the response. Solutions shown are basic (non-AI)."
             }
         
         usage_stats = {
             "ai_enhancement_used": True,
-            "bedrock_model_used": self.model_id,
+            "bedrock_model_used": f"ids-ai:{self.model_id}",
             "total_tokens_used": total_tokens,
             "estimated_total_cost": total_cost,
             "api_calls_made": api_calls
@@ -116,8 +130,8 @@ class BedrockEnhancer:
         # Build prompt — prefer structured AIContext over flat examples
         prompt = self._build_prompt(solutions, log_examples=log_examples, ai_context=ai_context)
         
-        # Call Bedrock API with retry
-        response = self._call_bedrock(prompt)
+        # Call team IDS AI API with retry
+        response = self._call_ai_provider(prompt)
         
         # Parse response
         enhanced_solutions = self._parse_response(solutions, response)
@@ -131,16 +145,16 @@ class BedrockEnhancer:
         # Use accurate cost calculation if we have input/output split
         if input_tokens and output_tokens:
             cost = self._calculate_cost(total_tokens, input_tokens, output_tokens)
-            print(f"[Bedrock Cost] Input: {input_tokens} tokens, Output: {output_tokens} tokens, Cost: ${cost:.4f}")
+            print(f"[IDS AI Cost] Input: {input_tokens} tokens, Output: {output_tokens} tokens, Cost: ${cost:.4f}")
         else:
             cost = self._calculate_cost(total_tokens)
-            print(f"[Bedrock Cost] Total: {total_tokens} tokens, Cost: ${cost:.4f} (estimated)")
+            print(f"[IDS AI Cost] Total: {total_tokens} tokens, Cost: ${cost:.4f} (estimated)")
         
         return enhanced_solutions, total_tokens, cost
     
     def _build_prompt(self, solutions: List[Solution], log_examples: List[str] = None, ai_context = None) -> str:
         """
-        Build prompt for Bedrock.
+        Build prompt for IDS AI.
         If ai_context (AIContext) is provided, builds a rich source-aware prompt.
         Otherwise falls back to legacy flat-examples prompt.
         """
@@ -179,7 +193,7 @@ class BedrockEnhancer:
         )
         
         return prompt
-    
+
     def _build_rich_prompt(self, solutions: List[Solution], ctx) -> str:
         """
         Build a source-aware prompt using structured AIContext.
@@ -662,124 +676,148 @@ class BedrockEnhancer:
         
         return prompt
     
-    def _call_bedrock(self, prompt: str, max_retries: int = 3) -> dict:
+    def _call_ai_provider(self, prompt: str, max_retries: int = 3) -> dict:
+        """Call the team IDS AI provider."""
+        return self._call_custom_ai(prompt, max_retries=max_retries)
+
+    def _call_custom_ai(self, prompt: str, max_retries: int = 3) -> dict:
         """
-        Call Bedrock API with retry mechanism and better error handling.
-        
-        Args:
-            prompt: The prompt to send
-            max_retries: Maximum number of retry attempts
-            
-        Returns:
-            dict with 'text' and 'usage' keys
+        Call a self-hosted IDS/AI API.
+
+        Expected request body is intentionally simple and provider-agnostic:
+        {
+          "prompt": "...",
+          "model": "...",
+          "max_tokens": 8192,
+          "temperature": 0.3,
+          "response_format": "json"
+        }
+
+        The response parser accepts common shapes:
+        - {"text": "..."}
+        - {"response": "..."}
+        - {"result": "..."}
+        - {"analysis": {...}}
+        - OpenAI compatible {"choices": [{"message": {"content": "..."}}]}
         """
         import time
-        
+
+        headers = {"Content-Type": "application/json"}
+        api_key = os.getenv("CUSTOM_AI_API_KEY") or os.getenv("IDS_LAYERED_API_KEY")
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        body = {
+            "prompt": prompt,
+            "model": self.model_id,
+            "max_tokens": 8192,
+            "temperature": 0.3,
+            "response_format": "json",
+        }
+
         last_error = None
         for attempt in range(max_retries):
             try:
-                # Prepare request body based on model
-                if "claude" in self.model_id.lower():
-                    # Claude format
-                    body = {
-                        "anthropic_version": "bedrock-2023-05-31",
-                        "max_tokens": 8192,  # Increased from 4096 to 8192 for deeper analysis
-                        "temperature": 0.3,
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ]
-                    }
-                else:
-                    # Nova format
-                    body = {
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": [{"text": prompt}]
-                            }
-                        ],
-                        "inferenceConfig": {
-                            "maxTokens": 8192,  # Increased from 4096 to 8192 for deeper analysis
-                            "temperature": 0.3,
-                            "topP": 0.9
-                        }
-                    }
-                
-                response = self.client.invoke_model(
-                    modelId=self.model_id,
-                    body=json.dumps(body)
+                response = requests.post(
+                    self.custom_api_url,
+                    headers=headers,
+                    json=body,
+                    timeout=self.timeout_seconds,
                 )
-                
-                response_body = json.loads(response['body'].read())
-                
-                # Extract text and usage based on model format
-                if "claude" in self.model_id.lower():
-                    text = response_body['content'][0]['text']
-                    usage = {
-                        'input_tokens': response_body['usage']['input_tokens'],
-                        'output_tokens': response_body['usage']['output_tokens'],
-                        'total_tokens': response_body['usage']['input_tokens'] + response_body['usage']['output_tokens']
-                    }
-                else:
-                    # Nova format
-                    text = response_body['output']['message']['content'][0]['text']
-                    usage = {
-                        'input_tokens': response_body['usage']['inputTokens'],
-                        'output_tokens': response_body['usage']['outputTokens'],
-                        'total_tokens': response_body['usage']['inputTokens'] + response_body['usage']['outputTokens']
-                    }
-                
-                # Validate response
+                response.raise_for_status()
+
+                try:
+                    response_body = response.json()
+                except ValueError:
+                    response_body = {"text": response.text}
+
+                text = self._extract_custom_ai_text(response_body)
                 if not text or len(text) < 10:
-                    raise ValueError(f"Bedrock returned empty or too short response: {text}")
-                
-                print(f"[Bedrock API] Success on attempt {attempt + 1}")
+                    raise ValueError(f"Custom AI returned empty or too short response: {text}")
+
+                usage = response_body.get("usage", {}) if isinstance(response_body, dict) else {}
+                input_tokens = (
+                    usage.get("input_tokens")
+                    or usage.get("prompt_tokens")
+                    or usage.get("inputTokens")
+                    or 0
+                )
+                output_tokens = (
+                    usage.get("output_tokens")
+                    or usage.get("completion_tokens")
+                    or usage.get("outputTokens")
+                    or 0
+                )
+                total_tokens = (
+                    usage.get("total_tokens")
+                    or usage.get("totalTokens")
+                    or (input_tokens + output_tokens)
+                    or 0
+                )
+
+                print(f"[Custom AI API] Success on attempt {attempt + 1}")
                 return {
-                    'text': text,
-                    'usage': usage
+                    "text": text,
+                    "usage": {
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "total_tokens": total_tokens,
+                    },
                 }
-                
             except Exception as e:
                 last_error = e
-                error_msg = str(e)
-                
-                # Check if it's a throttling error
-                if 'ThrottlingException' in error_msg or 'TooManyRequestsException' in error_msg:
-                    wait_time = (2 ** attempt) * 4  # Exponential backoff: 4s, 8s, 16s
-                    print(f"[Bedrock API] Throttled on attempt {attempt + 1}, waiting {wait_time}s...")
-                    time.sleep(wait_time)
-                    continue
-                
-                # Check if it's a model not found error
-                if 'ResourceNotFoundException' in error_msg or 'ValidationException' in error_msg:
-                    print(f"[Bedrock API] Model error: {error_msg}")
-                    raise  # Don't retry for model errors
-                
-                # For other errors, retry with backoff
                 if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 2  # Linear backoff: 2s, 4s
-                    print(f"[Bedrock API] Error on attempt {attempt + 1}: {error_msg}")
-                    print(f"[Bedrock API] Retrying in {wait_time}s...")
+                    wait_time = (attempt + 1) * 2
+                    print(f"[Custom AI API] Error on attempt {attempt + 1}: {e}")
+                    print(f"[Custom AI API] Retrying in {wait_time}s...")
                     time.sleep(wait_time)
                 else:
-                    print(f"[Bedrock API] Failed after {max_retries} attempts")
+                    print(f"[Custom AI API] Failed after {max_retries} attempts")
                     raise
-        
-        # If we get here, all retries failed
-        raise Exception(f"Bedrock API failed after {max_retries} attempts. Last error: {last_error}")
-    
+
+        raise Exception(f"Custom AI API failed after {max_retries} attempts. Last error: {last_error}")
+
+    def _extract_custom_ai_text(self, response_body) -> str:
+        """Extract generated text from common self-hosted/API response shapes."""
+        if isinstance(response_body, str):
+            return response_body
+
+        if not isinstance(response_body, dict):
+            return json.dumps(response_body)
+
+        choices = response_body.get("choices")
+        if choices and isinstance(choices, list):
+            first = choices[0] or {}
+            message = first.get("message") or {}
+            if isinstance(message, dict) and message.get("content"):
+                return message["content"]
+            if first.get("text"):
+                return first["text"]
+
+        for key in ("text", "response", "result", "output", "completion", "generated_text"):
+            value = response_body.get(key)
+            if isinstance(value, str):
+                return value
+            if isinstance(value, (dict, list)):
+                return json.dumps(value)
+
+        analysis = response_body.get("analysis")
+        if isinstance(analysis, str):
+            return analysis
+        if isinstance(analysis, (dict, list)):
+            return json.dumps(analysis)
+
+        return json.dumps(response_body)
+
     def _parse_response(self, original_solutions: List[Solution], response: dict) -> List[Solution]:
         """
-        Parse Bedrock response and create enhanced solutions with attack classification.
+        Parse IDS AI response and create enhanced solutions with attack classification.
         Handles truncated JSON from max_tokens cutoff.
         """
         text = response['text']
         
         # Log raw response for debugging (first 500 chars)
-        print(f"[Bedrock Response Preview] {text[:500]}")
+        print(f"[IDS AI Response Preview] {text[:500]}")
         
         try:
             # 1. Look for markdown code blocks first
@@ -787,7 +825,7 @@ class BedrockEnhancer:
             code_block_match = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', text, re.DOTALL)
             if code_block_match:
                 json_text = code_block_match.group(1)
-                print("[Bedrock Parse] Found JSON in markdown code block")
+                print("[IDS AI Parse] Found JSON in markdown code block")
             else:
                 # 2. Use regex to find the start of a JSON array: [{
                 match = re.search(r'\[\s*\{', text, re.DOTALL)
@@ -828,11 +866,11 @@ class BedrockEnhancer:
                                 
                                 # Validate required fields
                                 if "summary" not in structured_data:
-                                    print(f"[Bedrock Parse Warning] Missing 'summary' in response for issue {i+1}")
+                                    print(f"[IDS AI Parse Warning] Missing 'summary' in response for issue {i+1}")
                                 if "investigation" not in structured_data:
-                                    print(f"[Bedrock Parse Warning] Missing 'investigation' in response for issue {i+1}")
+                                    print(f"[IDS AI Parse Warning] Missing 'investigation' in response for issue {i+1}")
                                 if "action_plan" not in structured_data:
-                                    print(f"[Bedrock Parse Warning] Missing 'action_plan' in response for issue {i+1}")
+                                    print(f"[IDS AI Parse Warning] Missing 'action_plan' in response for issue {i+1}")
                             else:
                                 # Legacy format
                                 enhanced_text = str(raw_val.get('enhanced_solution', solution.solution))
@@ -870,18 +908,18 @@ class BedrockEnhancer:
                         )
                         enhanced_solutions.append(enhanced_solution)
                     
-                    print(f"[Bedrock Parse] Successfully parsed {len(enhanced_solutions)} enhanced solutions")
+                    print(f"[IDS AI Parse] Successfully parsed {len(enhanced_solutions)} enhanced solutions")
                     return enhanced_solutions
                 else:
-                    print(f"[Bedrock Parse Warning] Could not parse JSON even after repair. Text: {json_text[:500]}")
+                    print(f"[IDS AI Parse Warning] Could not parse JSON even after repair. Text: {json_text[:500]}")
                     return original_solutions
             else:
                 # No JSON array found at all
-                print(f"[Bedrock Parse Warning] No JSON array found in response. Full text: {text[:1000]}")
+                print(f"[IDS AI Parse Warning] No JSON array found in response. Full text: {text[:1000]}")
                 return original_solutions
         
         except Exception as e:
-            print(f"[Bedrock Parse Error] Unexpected error: {e}")
+            print(f"[IDS AI Parse Error] Unexpected error: {e}")
             import traceback
             traceback.print_exc()
             return original_solutions
@@ -954,12 +992,12 @@ class BedrockEnhancer:
                 repaired = repaired.rstrip().rstrip(',') + ']'
             try:
                 result = json.loads(repaired)
-                print(f"[Bedrock Parse] Repaired truncated JSON ({len(result)} items salvaged)")
+                print(f"[IDS AI Parse] Repaired truncated JSON ({len(result)} items salvaged)")
                 return result
             except json.JSONDecodeError:
                 pass
 
-        print(f"[Bedrock Parse] All repair attempts failed. Raw snippet: {text[:300]}")
+        print(f"[IDS AI Parse] All repair attempts failed. Raw snippet: {text[:300]}")
         return None
 
     def _validate_rca_quality(self, parsed_response: dict) -> dict:
@@ -1053,6 +1091,9 @@ class BedrockEnhancer:
         Returns:
             Estimated cost in USD
         """
+        if self.provider == "custom":
+            return 0.0
+
         # If we have actual input/output split, use it
         if input_tokens is not None and output_tokens is not None:
             if "nova-micro" in self.model_id.lower():
@@ -1104,12 +1145,12 @@ class BedrockEnhancer:
         from models import GlobalRCA
         
         if not self.is_available():
-            return GlobalRCA(), {"ai_enhancement_used": False, "error": "Bedrock not available"}
+            return GlobalRCA(), {"ai_enhancement_used": False, "error": "Team IDS AI API not configured"}
         
         prompt = self._build_global_rca_prompt(unified_context)
         
         try:
-            response = self._call_bedrock(prompt)
+            response = self._call_ai_provider(prompt)
             text = response.get('text', '')
             usage = response.get('usage', {})
             
@@ -1161,7 +1202,7 @@ class BedrockEnhancer:
             
             stats = {
                 "ai_enhancement_used": True,
-                "bedrock_model_used": self.model_id,
+                "bedrock_model_used": f"ids-ai:{self.model_id}",
                 "total_tokens_used": total_tokens,
                 "estimated_total_cost": cost,
                 "api_calls_made": 1,
@@ -1459,13 +1500,14 @@ class BedrockEnhancer:
         
         if not self.is_available():
             return DeepDiveResult(log_group=deep_dive_context.get('log_group', '')), {
-                "ai_enhancement_used": False, "error": "Bedrock not available"
+                "ai_enhancement_used": False,
+                "error": "Team IDS AI API not configured"
             }
         
         prompt = self._build_deep_dive_prompt(deep_dive_context)
         
         try:
-            response = self._call_bedrock(prompt)
+            response = self._call_ai_provider(prompt)
             text = response.get('text', '')
             usage = response.get('usage', {})
             
@@ -1503,7 +1545,7 @@ class BedrockEnhancer:
             
             stats = {
                 "ai_enhancement_used": True,
-                "bedrock_model_used": self.model_id,
+                "bedrock_model_used": f"ids-ai:{self.model_id}",
                 "total_tokens_used": total_tokens,
                 "estimated_total_cost": cost,
                 "api_calls_made": 1,
@@ -1593,3 +1635,7 @@ class BedrockEnhancer:
         )
         
         return prompt
+
+
+# Backward-compatible alias for modules that still import the old name.
+BedrockEnhancer = IDSAIEnhancer

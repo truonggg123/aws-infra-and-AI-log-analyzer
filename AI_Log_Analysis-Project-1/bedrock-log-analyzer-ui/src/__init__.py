@@ -1,5 +1,5 @@
 """
-Bedrock Log Analyzer - Source modules
+IDS AI Log Analyzer - Source modules
 """
 from .models import (
     LogEntry,
@@ -14,7 +14,7 @@ from .models import (
 from .log_parser import LogParser
 from .pattern_analyzer import PatternAnalyzer
 from .rule_detector import RuleBasedDetector
-from .bedrock_enhancer import BedrockEnhancer
+from .bedrock_enhancer import IDSAIEnhancer, BedrockEnhancer
 from .log_preprocessor import LogPreprocessor, AIContext
 
 __all__ = [
@@ -29,6 +29,7 @@ __all__ = [
     'LogParser',
     'PatternAnalyzer',
     'RuleBasedDetector',
+    'IDSAIEnhancer',
     'BedrockEnhancer',
     'LogPreprocessor',
     'AIContext'

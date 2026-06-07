@@ -26,6 +26,49 @@
         group: ec2-user
         mode: '0600'
 
+    - name: Create private Docker network for analyzer services
+      community.docker.docker_network:
+        name: ids-analyzer-net
+        state: present
+
+    - name: Pull team IDS AI image
+      community.docker.docker_image:
+        name: "{{ ids_ai_image | default('docker.io/nguyencntruong/ids-layered-api:v1.0') }}"
+        source: pull
+        force_source: yes
+
+    - name: Run team IDS AI API container
+      community.docker.docker_container:
+        name: "{{ ids_ai_container_name | default('ids-layered-api') }}"
+        image: "{{ ids_ai_image | default('docker.io/nguyencntruong/ids-layered-api:v1.0') }}"
+        state: started
+        restart_policy: unless-stopped
+        recreate: yes
+        networks:
+          - name: ids-analyzer-net
+            aliases:
+              - "{{ ids_ai_container_name | default('ids-layered-api') }}"
+        env:
+          PORT: "{{ ids_ai_port | default(8000) | string }}"
+        log_driver: json-file
+        log_options:
+          max-size: "10m"
+          max-file: "3"
+
+    - name: Inspect team IDS AI API container
+      community.docker.docker_container_info:
+        name: "{{ ids_ai_container_name | default('ids-layered-api') }}"
+      register: ids_ai_container_info
+
+    - name: Verify correct team IDS AI image is running
+      assert:
+        that:
+          - ids_ai_container_info.exists
+          - ids_ai_container_info.container.State.Status == "running"
+          - ids_ai_container_info.container.Config.Image == (ids_ai_image | default('docker.io/nguyencntruong/ids-layered-api:v1.0'))
+        fail_msg: "Team IDS AI container is not running with the expected image."
+        success_msg: "Team IDS AI container is running with the expected image."
+
     - name: Build Docker image from source
       community.docker.docker_image:
         name: bedrock-log-analyzer-ui
@@ -46,6 +89,8 @@
         recreate: yes
         ports:
           - "80:8501"
+        networks:
+          - name: ids-analyzer-net
         volumes:
           - /home/ec2-user/bedrock-log-analyzer-ui/.env:/app/.env:ro
           - /data/incidents:/data/incidents:rw

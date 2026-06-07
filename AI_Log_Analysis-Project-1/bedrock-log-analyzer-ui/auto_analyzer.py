@@ -7,7 +7,7 @@ Pipeline steps:
   2. Parse + tag source
   3. Pattern analysis (clustering, temporal)
   4. Cross-source correlation (AdvancedCorrelator)
-  5. If anomaly detected → Bedrock AI Global RCA
+  5. If anomaly detected → Team IDS AI Global RCA
   6. Send Telegram alert (if threat found)
   7. Save results to disk (incident_store)
   8. Cleanup old files (>7 days)
@@ -34,7 +34,7 @@ from log_parser import LogParser
 from pattern_analyzer import PatternAnalyzer
 from advanced_correlator import AdvancedCorrelator
 from log_preprocessor import build_unified_context
-from bedrock_enhancer import BedrockEnhancer
+from bedrock_enhancer import IDSAIEnhancer
 from telegram_notifier import TelegramNotifier
 from incident_store import IncidentStore
 
@@ -64,11 +64,18 @@ ALL_LOG_GROUPS = [
 ]
 
 INTERVAL_MINUTES = int(os.getenv("AUTO_ANALYSIS_INTERVAL_MINUTES", "5"))
-BEDROCK_MODEL = os.getenv("AUTO_BEDROCK_MODEL", "anthropic.claude-3-haiku-20240307-v1:0")
+IDS_AI_MODEL = os.getenv("AUTO_IDS_AI_MODEL") or os.getenv("IDS_AI_MODEL", "ids-layered-api:v1.0")
+AI_PROVIDER = "custom"
+CUSTOM_AI_API_URL = (
+    os.getenv("AUTO_CUSTOM_AI_API_URL")
+    or os.getenv("CUSTOM_AI_API_URL")
+    or os.getenv("IDS_LAYERED_API_URL")
+    or "http://localhost:8000/analyze"
+)
 RULES_PATH = os.path.join(os.path.dirname(__file__), "correlation_rules.json")
 RETENTION_DAYS = int(os.getenv("INCIDENT_RETENTION_DAYS", "7"))
 
-# Anomaly thresholds — only call Bedrock when these are met
+# Anomaly thresholds — only call IDS AI when these are met
 MIN_CORRELATED_EVENTS = 1      # At least 1 correlated attack pattern
 MIN_ERROR_RATE = 0.20           # Or overall error rate > 20%
 MIN_HIGH_SEVERITY_SIGNALS = 3   # Or 3+ HIGH/CRITICAL signals
@@ -193,7 +200,7 @@ def run_pipeline():
         time_range_str=time_range_str,
     )
 
-    # --- Anomaly detection: decide if Bedrock AI call is needed ---
+    # --- Anomaly detection: decide if IDS AI call is needed ---
     has_correlation = len(correlated_events) >= MIN_CORRELATED_EVENTS
 
     # Count HIGH/CRITICAL signals
@@ -228,8 +235,13 @@ def run_pipeline():
     cost_info = {"tokens": 0, "usd": 0.0}
 
     if needs_ai:
-        logger.info("🤖 Running Bedrock Global RCA...")
-        enhancer = BedrockEnhancer(region=REGION, model=BEDROCK_MODEL)
+        logger.info("🤖 Running team IDS AI Global RCA...")
+        enhancer = IDSAIEnhancer(
+            region=REGION,
+            model=IDS_AI_MODEL,
+            provider=AI_PROVIDER,
+            custom_api_url=CUSTOM_AI_API_URL,
+        )
 
         if enhancer.is_available():
             try:
@@ -261,9 +273,9 @@ def run_pipeline():
                 else:
                     logger.warning(f"  AI failed: {usage_stats.get('error', 'unknown')}")
             except Exception as e:
-                logger.error(f"  Bedrock error: {e}")
+                logger.error(f"  IDS AI error: {e}")
         else:
-            logger.warning("  Bedrock not available — skipping AI")
+            logger.warning("  IDS AI not available — skipping AI")
 
     # ──────────────────────────────────────────────────────────
     # Step 7: Send Telegram alert (if threat found)

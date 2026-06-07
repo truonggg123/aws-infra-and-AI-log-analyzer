@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+export TF_VAR_project="${TF_VAR_project:-p1}"
+export TF_VAR_env="${TF_VAR_env:-dev}"
+export TF_VAR_region_short="${TF_VAR_region_short:-apse1}"
+export AWS_REGION="${AWS_REGION:-ap-southeast-1}"
+
 echo "🚀 Complete Deployment Script"
 echo "=============================="
 echo ""
@@ -47,6 +55,21 @@ if ! command -v ansible &> /dev/null; then
     exit 1
 fi
 
+if ! command -v ansible-playbook &> /dev/null; then
+    print_error "ansible-playbook not found. Please install Ansible completely."
+    exit 1
+fi
+
+if ! ansible-galaxy collection list amazon.aws &> /dev/null; then
+    print_error "Ansible collection amazon.aws not found. Run: ansible-galaxy collection install -r ansible/requirements.yml"
+    exit 1
+fi
+
+if ! ansible-galaxy collection list community.docker &> /dev/null; then
+    print_error "Ansible collection community.docker not found. Run: ansible-galaxy collection install -r ansible/requirements.yml"
+    exit 1
+fi
+
 # Check AWS credentials
 if ! aws sts get-caller-identity &> /dev/null; then
     print_error "AWS credentials not configured. Run 'aws configure' first."
@@ -62,7 +85,7 @@ echo ""
 print_step "Step 1: Bootstrap S3 Backend"
 echo ""
 
-cd ../bootstrap/
+cd "$REPO_ROOT/bootstrap/"
 
 if [ ! -f "terraform.tfstate" ]; then
     echo "🔧 Initializing bootstrap..."
@@ -73,7 +96,7 @@ else
     echo "✅ Bootstrap already exists"
 fi
 
-cd ../environments/dev/
+cd "$REPO_ROOT/environments/dev/"
 
 # ============================================================
 # Step 2: Deploy Infrastructure
@@ -97,7 +120,7 @@ else
 fi
 
 # Save outputs
-terraform output -json > ../../scripts/terraform_outputs.json
+terraform output -json > "$REPO_ROOT/scripts/terraform_outputs.json"
 
 # ============================================================
 # Step 3: Fix Log Groups
@@ -105,7 +128,7 @@ terraform output -json > ../../scripts/terraform_outputs.json
 print_step "Step 3: Fix CloudWatch Log Groups"
 echo ""
 
-cd ../../scripts/
+cd "$REPO_ROOT/scripts/"
 chmod +x fix_log_groups.sh
 ./fix_log_groups.sh
 
@@ -132,7 +155,7 @@ fi
 print_step "Step 5: Deploy Applications (Ansible)"
 echo ""
 
-cd ../ansible/
+cd "$REPO_ROOT/ansible/"
 
 # Test inventory
 echo "🔍 Testing Ansible inventory..."
@@ -151,7 +174,16 @@ fi
 read -p "Deploy applications? (y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
+    IDS_AI_IMAGE="${IDS_AI_IMAGE:-docker.io/nguyencntruong/ids-layered-api:v1.0}"
+    IDS_AI_CONTAINER="${IDS_AI_CONTAINER:-ids-layered-api}"
+    echo "Deploying team IDS AI image: $IDS_AI_IMAGE"
     ansible-playbook -i inventory/aws_ec2.yml playbooks/site.yml
+    echo "Verifying team IDS AI container..."
+    ansible role_app -i inventory/aws_ec2.yml -m shell -a "docker inspect --format='{{.Config.Image}} {{.State.Status}}' $IDS_AI_CONTAINER" | tee /tmp/ids_ai_verify.txt
+    if ! grep -q "$IDS_AI_IMAGE running" /tmp/ids_ai_verify.txt; then
+        print_error "Team IDS AI container is not running with expected image: $IDS_AI_IMAGE"
+        exit 1
+    fi
     echo "✅ Applications deployed"
 else
     print_warning "Application deployment skipped"
@@ -163,7 +195,7 @@ fi
 print_step "Step 6: Final Verification"
 echo ""
 
-cd ../scripts/
+cd "$REPO_ROOT/scripts/"
 
 # Check logs
 echo "📊 Checking CloudWatch logs..."
@@ -177,7 +209,7 @@ echo "🎉 Deployment Complete!"
 echo "======================="
 echo ""
 
-ALB_DNS=$(cd ../environments/dev && terraform output -raw alb_dns_name)
+ALB_DNS=$(cd "$REPO_ROOT/environments/dev" && terraform output -raw alb_dns_name)
 
 echo "🌐 Access URLs:"
 echo "  Web QLSV: http://$ALB_DNS/qlsv"
