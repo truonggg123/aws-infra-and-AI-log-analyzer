@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export TF_VAR_project="${TF_VAR_project:-p1}"
 export TF_VAR_env="${TF_VAR_env:-dev}"
 export TF_VAR_region_short="${TF_VAR_region_short:-apse1}"
+export TF_VAR_enable_nat_gateway="${TF_VAR_enable_nat_gateway:-true}"
 export AWS_REGION="${AWS_REGION:-ap-southeast-1}"
 
 echo "🚀 Complete Deployment Script"
@@ -103,6 +104,8 @@ cd "$REPO_ROOT/environments/dev/"
 # Step 2: Deploy Infrastructure
 # ============================================================
 print_step "Step 2: Deploy Infrastructure (Terraform)"
+echo ""
+echo "NAT Gateway enabled: $TF_VAR_enable_nat_gateway (required for private EC2 downloads and Docker pulls)"
 echo ""
 
 terraform init

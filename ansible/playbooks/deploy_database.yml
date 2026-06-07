@@ -1,0 +1,79 @@
+---
+- name: Deploy database schema from inside the VPC
+  hosts: role_web
+  become: yes
+  run_once: yes
+  vars:
+    schema_remote_path: /tmp/complete_setup.sql
+    db_name: qlsv_system
+
+  tasks:
+    - name: Install MySQL client package
+      block:
+        - name: Install mariadb105 client
+          yum:
+            name: mariadb105
+            state: present
+      rescue:
+        - name: Install mariadb client fallback
+          yum:
+            name: mariadb
+            state: present
+
+    - name: Copy database schema to remote host
+      copy:
+        src: "{{ playbook_dir }}/../../Web-Project-1/database/complete_setup.sql"
+        dest: "{{ schema_remote_path }}"
+        owner: ec2-user
+        group: ec2-user
+        mode: "0600"
+
+    - name: Read database connection from SSM
+      set_fact:
+        db_host: "{{ lookup('amazon.aws.ssm_parameter', '/qlsv/dev/db/host') }}"
+        db_user: "{{ lookup('amazon.aws.ssm_parameter', '/qlsv/dev/db/user') }}"
+        db_pass: "{{ lookup('amazon.aws.ssm_parameter', '/qlsv/dev/db/password') }}"
+        db_name_from_ssm: "{{ lookup('amazon.aws.ssm_parameter', '/qlsv/dev/db/name') | default(db_name, true) }}"
+
+    - name: Test database connection
+      shell: |
+        mysql --connect-timeout=10 -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" -e "SELECT VERSION();"
+      environment:
+        DB_HOST: "{{ db_host }}"
+        DB_USER: "{{ db_user }}"
+        DB_PASS: "{{ db_pass }}"
+      no_log: true
+
+    - name: Deploy database schema
+      shell: |
+        mysql --connect-timeout=10 -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" < "{{ schema_remote_path }}"
+      environment:
+        DB_HOST: "{{ db_host }}"
+        DB_USER: "{{ db_user }}"
+        DB_PASS: "{{ db_pass }}"
+      no_log: true
+
+    - name: Verify seeded tables
+      shell: |
+        mysql --connect-timeout=10 -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" -e "
+        USE {{ db_name_from_ssm }};
+        SELECT 'Users' as Table_Name, COUNT(*) as Count FROM users
+        UNION ALL
+        SELECT 'Students', COUNT(*) FROM students
+        UNION ALL
+        SELECT 'Classes', COUNT(*) FROM classes
+        UNION ALL
+        SELECT 'Enrollments', COUNT(*) FROM enrollments
+        UNION ALL
+        SELECT 'Grades', COUNT(*) FROM grades;
+        "
+      environment:
+        DB_HOST: "{{ db_host }}"
+        DB_USER: "{{ db_user }}"
+        DB_PASS: "{{ db_pass }}"
+      register: db_summary
+      no_log: true
+
+    - name: Show database deployment summary
+      debug:
+        msg: "{{ db_summary.stdout_lines }}"
