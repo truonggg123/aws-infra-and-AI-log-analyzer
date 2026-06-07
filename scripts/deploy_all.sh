@@ -184,6 +184,8 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     if [[ -z "${DOCKERHUB_USERNAME:-}" || -z "${DOCKERHUB_TOKEN:-}" ]]; then
         print_warning "DOCKERHUB_USERNAME/DOCKERHUB_TOKEN not set. Pull will work only if $IDS_AI_IMAGE is public."
     fi
+    echo "Pre-pulling IDS AI image on app nodes so Docker pull progress is visible..."
+    ansible role_app -i inventory/aws_ec2.yml -b -B 1800 -P 10 -m shell -a "docker pull $IDS_AI_IMAGE"
     ansible-playbook -i inventory/aws_ec2.yml playbooks/site.yml
     echo "Verifying team IDS AI container..."
     ansible role_app -i inventory/aws_ec2.yml -m shell -a "docker inspect --format='{{.Config.Image}} {{.State.Status}}' $IDS_AI_CONTAINER" | tee /tmp/ids_ai_verify.txt

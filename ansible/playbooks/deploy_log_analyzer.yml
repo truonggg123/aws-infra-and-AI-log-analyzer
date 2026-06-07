@@ -45,6 +45,8 @@
         name: "{{ ids_ai_image | default('docker.io/nguyencntruong/ids-project:v1') }}"
         source: pull
         force_source: yes
+      async: 1800
+      poll: 10
 
     - name: Run team IDS AI API container
       community.docker.docker_container:
