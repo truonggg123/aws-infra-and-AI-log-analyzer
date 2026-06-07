@@ -5,7 +5,7 @@ echo "📊 CloudWatch Log Groups Status Check"
 echo "======================================"
 echo ""
 
-AWS_REGION="ap-southeast-1"
+AWS_REGION="${AWS_REGION:-ap-southeast-1}"
 
 # Danh sách log groups theo Streamlit app
 LOG_GROUPS=(
@@ -46,9 +46,10 @@ for log_group in "${LOG_GROUPS[@]}"; do
             --region "$AWS_REGION" \
             --max-items 1 \
             --query 'events[0].timestamp' \
-            --output text 2>/dev/null || echo "0")
+            --output text 2>/dev/null | awk '/^[0-9]+$/ {print; exit}' || true)
+        latest_event="${latest_event:-0}"
         
-        if [ "$latest_event" != "0" ] && [ "$latest_event" != "None" ]; then
+        if [[ "$latest_event" =~ ^[0-9]+$ ]] && [ "$latest_event" != "0" ]; then
             # Convert timestamp to readable format
             latest_time=$(date -d "@$((latest_event / 1000))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "N/A")
             echo "✅ ACTIVE ($stream_count streams, latest: $latest_time)"
