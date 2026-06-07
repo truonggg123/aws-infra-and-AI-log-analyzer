@@ -64,7 +64,7 @@ ALL_LOG_GROUPS = [
 ]
 
 INTERVAL_MINUTES = int(os.getenv("AUTO_ANALYSIS_INTERVAL_MINUTES", "5"))
-IDS_AI_MODEL = os.getenv("AUTO_IDS_AI_MODEL") or os.getenv("IDS_AI_MODEL", "ids-layered-api:v1.0")
+IDS_AI_MODEL = os.getenv("AUTO_IDS_AI_MODEL") or os.getenv("IDS_AI_MODEL", "ids-project:v1")
 AI_PROVIDER = "custom"
 CUSTOM_AI_API_URL = (
     os.getenv("AUTO_CUSTOM_AI_API_URL")

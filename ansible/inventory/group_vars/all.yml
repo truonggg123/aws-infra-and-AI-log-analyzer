@@ -2,12 +2,14 @@
 aws_region: "{{ lookup('env', 'AWS_REGION') | default('ap-southeast-1', true) }}"
 
 # --- IDS AI Configuration ---
-ids_ai_image: "docker.io/nguyencntruong/ids-layered-api:v1.0"
+ids_ai_image: "docker.io/nguyencntruong/ids-project:v1"
 ids_ai_container_name: "ids-layered-api"
 ids_ai_port: 8000
 ids_ai_endpoint_path: "/analyze"
-ids_ai_model: "ids-layered-api:v1.0"
+ids_ai_model: "ids-project:v1"
 ai_provider: "custom"
+dockerhub_username: "{{ lookup('env', 'DOCKERHUB_USERNAME') | default('', true) }}"
+dockerhub_token: "{{ lookup('env', 'DOCKERHUB_TOKEN') | default('', true) }}"
 max_tokens: 2000
 temperature: 0.3
 

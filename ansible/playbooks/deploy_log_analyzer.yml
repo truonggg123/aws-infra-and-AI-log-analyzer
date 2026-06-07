@@ -31,16 +31,25 @@
         name: ids-analyzer-net
         state: present
 
+    - name: Login to Docker Hub for private IDS AI image
+      community.docker.docker_login:
+        username: "{{ dockerhub_username }}"
+        password: "{{ dockerhub_token }}"
+      no_log: true
+      when:
+        - dockerhub_username | length > 0
+        - dockerhub_token | length > 0
+
     - name: Pull team IDS AI image
       community.docker.docker_image:
-        name: "{{ ids_ai_image | default('docker.io/nguyencntruong/ids-layered-api:v1.0') }}"
+        name: "{{ ids_ai_image | default('docker.io/nguyencntruong/ids-project:v1') }}"
         source: pull
         force_source: yes
 
     - name: Run team IDS AI API container
       community.docker.docker_container:
         name: "{{ ids_ai_container_name | default('ids-layered-api') }}"
-        image: "{{ ids_ai_image | default('docker.io/nguyencntruong/ids-layered-api:v1.0') }}"
+        image: "{{ ids_ai_image | default('docker.io/nguyencntruong/ids-project:v1') }}"
         state: started
         restart_policy: unless-stopped
         recreate: yes
@@ -65,7 +74,7 @@
         that:
           - ids_ai_container_info.exists
           - ids_ai_container_info.container.State.Status == "running"
-          - ids_ai_container_info.container.Config.Image == (ids_ai_image | default('docker.io/nguyencntruong/ids-layered-api:v1.0'))
+          - ids_ai_container_info.container.Config.Image == (ids_ai_image | default('docker.io/nguyencntruong/ids-project:v1'))
         fail_msg: "Team IDS AI container is not running with the expected image."
         success_msg: "Team IDS AI container is running with the expected image."
 

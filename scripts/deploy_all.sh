@@ -178,9 +178,12 @@ fi
 read -p "Deploy applications? (y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    IDS_AI_IMAGE="${IDS_AI_IMAGE:-docker.io/nguyencntruong/ids-layered-api:v1.0}"
+    IDS_AI_IMAGE="${IDS_AI_IMAGE:-docker.io/nguyencntruong/ids-project:v1}"
     IDS_AI_CONTAINER="${IDS_AI_CONTAINER:-ids-layered-api}"
     echo "Deploying team IDS AI image: $IDS_AI_IMAGE"
+    if [[ -z "${DOCKERHUB_USERNAME:-}" || -z "${DOCKERHUB_TOKEN:-}" ]]; then
+        print_warning "DOCKERHUB_USERNAME/DOCKERHUB_TOKEN not set. Pull will work only if $IDS_AI_IMAGE is public."
+    fi
     ansible-playbook -i inventory/aws_ec2.yml playbooks/site.yml
     echo "Verifying team IDS AI container..."
     ansible role_app -i inventory/aws_ec2.yml -m shell -a "docker inspect --format='{{.Config.Image}} {{.State.Status}}' $IDS_AI_CONTAINER" | tee /tmp/ids_ai_verify.txt

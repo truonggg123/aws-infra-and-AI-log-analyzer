@@ -169,14 +169,14 @@ custom_ai_url = st.sidebar.text_input(
     "Custom AI API URL",
     value=os.getenv("CUSTOM_AI_API_URL") or os.getenv("IDS_LAYERED_API_URL", "http://localhost:8000/analyze"),
     disabled=False,
-    help="Endpoint exposed by docker.io/nguyencntruong/ids-layered-api:v1.0, for example http://localhost:8000/analyze",
+    help="Endpoint exposed by docker.io/nguyencntruong/ids-project:v1, for example http://localhost:8000/analyze",
 )
 ai_model = st.sidebar.selectbox(
     "AI Model",
     [
-        "ids-layered-api:v1.0",
+        "ids-project:v1",
     ],
-    help="Team IDS AI model served by docker.io/nguyencntruong/ids-layered-api:v1.0."
+    help="Team IDS AI model served by docker.io/nguyencntruong/ids-project:v1."
 )
 
 # ============================================================
@@ -1051,7 +1051,7 @@ def _render_incident_dashboard():
             st.markdown("### Configuration")
             st.write(f"Interval: **{os.getenv('AUTO_ANALYSIS_INTERVAL_MINUTES', '5')} minutes**")
             st.write(f"Retention: **{os.getenv('INCIDENT_RETENTION_DAYS', '7')} days**")
-            st.write(f"IDS AI Model: **{os.getenv('AUTO_IDS_AI_MODEL', os.getenv('IDS_AI_MODEL', 'ids-layered-api:v1.0'))}**")
+            st.write(f"IDS AI Model: **{os.getenv('AUTO_IDS_AI_MODEL', os.getenv('IDS_AI_MODEL', 'ids-project:v1'))}**")
             st.write(f"Data Directory: `{os.getenv('INCIDENT_DATA_DIR', '/data/incidents')}`")
 
         with col2:
