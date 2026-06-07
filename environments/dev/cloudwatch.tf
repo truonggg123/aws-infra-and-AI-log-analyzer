@@ -57,7 +57,7 @@ resource "aws_cloudwatch_log_group" "web_httpd" {
 # Web Tier - PHP Application Logs
 resource "aws_cloudwatch_log_group" "web_application" {
   name              = "/aws/ec2/web-tier/application"
-  retention_in_days = 14  # Business logs need longer retention
+  retention_in_days = 14 # Business logs need longer retention
 
   tags = {
     Name        = "${local.name_prefix}-web-application-logs"
@@ -109,7 +109,7 @@ resource "aws_cloudwatch_log_group" "rds_error" {
 # RDS MySQL - Slow Query Logs
 resource "aws_cloudwatch_log_group" "rds_slowquery" {
   name              = "/aws/rds/mysql/slowquery"
-  retention_in_days = 14  # Performance logs need longer retention
+  retention_in_days = 14 # Performance logs need longer retention
 
   tags = {
     Name        = "${local.name_prefix}-rds-slowquery-logs"
@@ -265,16 +265,16 @@ output "cloudwatch_log_groups" {
     # Infrastructure
     vpc_flow_logs = aws_cloudwatch_log_group.vpc_flow_logs.name
     cloudtrail    = aws_cloudwatch_log_group.cloudtrail.name
-    
+
     # Web Tier
     web_system      = aws_cloudwatch_log_group.web_system.name
     web_httpd       = aws_cloudwatch_log_group.web_httpd.name
     web_application = aws_cloudwatch_log_group.web_application.name
-    
+
     # App Tier
     app_system    = aws_cloudwatch_log_group.app_system.name
     app_streamlit = aws_cloudwatch_log_group.app_streamlit.name
-    
+
     # Database
     rds_error     = aws_cloudwatch_log_group.rds_error.name
     rds_slowquery = aws_cloudwatch_log_group.rds_slowquery.name

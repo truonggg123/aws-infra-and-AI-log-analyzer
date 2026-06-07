@@ -1,18 +1,18 @@
 terraform {
   required_providers {
     aws = {
-    source ="hashicorp/aws"
-    version = "~>5.0"
+      source  = "hashicorp/aws"
+      version = "~>5.0"
     }
     random = {
-    source = "hashicorp/random"
-    version = "~>3.0" 
+      source  = "hashicorp/random"
+      version = "~>3.0"
     }
   }
   backend "s3" {
-    bucket = "p1-bootstrap-apse1-tfstate-240933274359"
-    key = "dev/terraform.tfstate"
-    region = "ap-southeast-1"
+    bucket  = "p1-bootstrap-apse1-tfstate-240933274359"
+    key     = "dev/terraform.tfstate"
+    region  = "ap-southeast-1"
     encrypt = true
 
     use_lockfile = true
@@ -26,8 +26,8 @@ provider "aws" {
   default_tags {
     tags = {
       Environment = "dev"
-      Project = "project1"
-      ManagedBy = "terraform"
+      Project     = "project1"
+      ManagedBy   = "terraform"
     }
   }
 }

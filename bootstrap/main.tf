@@ -2,8 +2,8 @@
 terraform {
   required_providers {
     aws = {
-        source = "hashicorp/aws"
-        version = "~> 5.0"
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
     }
   }
   required_version = ">= 1.5.0"
@@ -21,9 +21,9 @@ resource "aws_s3_bucket" "tfstate" {
     prevent_destroy = true
   }
   tags = {
-    project = "p1" 
-    env = "bootstrap"
-    region = "apse1"
+    project  = "p1"
+    env      = "bootstrap"
+    region   = "apse1"
     resource = "tfstate"
   }
 }
@@ -49,9 +49,9 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "encryption" {
 resource "aws_s3_bucket_public_access_block" "public" {
   bucket = aws_s3_bucket.tfstate.id
 
-  block_public_acls = true
-  block_public_policy = true  
-  ignore_public_acls = true
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
   restrict_public_buckets = true
 }
 

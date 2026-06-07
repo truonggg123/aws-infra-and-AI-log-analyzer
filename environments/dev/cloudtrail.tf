@@ -238,10 +238,10 @@ resource "aws_cloudwatch_metric_alarm" "root_account_usage" {
 output "cloudtrail_info" {
   description = "CloudTrail configuration details"
   value = {
-    trail_name      = aws_cloudtrail.main.name
-    trail_arn       = aws_cloudtrail.main.arn
-    s3_bucket       = aws_s3_bucket.cloudtrail.id
-    log_group       = aws_cloudwatch_log_group.cloudtrail.name
-    is_logging      = aws_cloudtrail.main.enable_logging
+    trail_name = aws_cloudtrail.main.name
+    trail_arn  = aws_cloudtrail.main.arn
+    s3_bucket  = aws_s3_bucket.cloudtrail.id
+    log_group  = aws_cloudwatch_log_group.cloudtrail.name
+    is_logging = aws_cloudtrail.main.enable_logging
   }
 }

@@ -27,7 +27,7 @@ resource "aws_launch_template" "web" {
   vpc_security_group_ids = [aws_security_group.web.id, aws_security_group.ssm_endpoints.id] # Gán thêm SG SSM
   tag_specifications {
     resource_type = "instance"
-    tags = { Name = "${local.name_prefix}-layer-1-web" }
+    tags          = { Name = "${local.name_prefix}-layer-1-web" }
   }
 }
 
@@ -71,7 +71,7 @@ resource "aws_launch_template" "app" {
   vpc_security_group_ids = [aws_security_group.app.id, aws_security_group.ssm_endpoints.id] # Gán thêm SG SSM
   tag_specifications {
     resource_type = "instance"
-    tags = { Name = "${local.name_prefix}-layer-2-app" }
+    tags          = { Name = "${local.name_prefix}-layer-2-app" }
   }
 }
 

@@ -86,14 +86,15 @@ print_step "Step 1: Bootstrap S3 Backend"
 echo ""
 
 cd "$REPO_ROOT/bootstrap/"
+TFSTATE_BUCKET="p1-bootstrap-apse1-tfstate-240933274359"
 
-if [ ! -f "terraform.tfstate" ]; then
+if ! aws s3api head-bucket --bucket "$TFSTATE_BUCKET" &> /dev/null; then
     echo "🔧 Initializing bootstrap..."
     terraform init
     terraform apply -auto-approve
     echo "✅ Bootstrap complete"
 else
-    echo "✅ Bootstrap already exists"
+    echo "✅ Bootstrap bucket already exists: $TFSTATE_BUCKET"
 fi
 
 cd "$REPO_ROOT/environments/dev/"

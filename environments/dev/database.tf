@@ -14,24 +14,24 @@ resource "random_password" "db_password" {
 }
 
 resource "aws_db_instance" "main" {
-  identifier           = "${local.name_prefix}-db"
-  instance_class       = "db.t3.micro"
-  engine               = "mysql"
-  engine_version       = "8.0"
-  db_name              = "qlsv_system"
-  username             = var.db_username 
-  password             = random_password.db_password.result
-  
+  identifier     = "${local.name_prefix}-db"
+  instance_class = "db.t3.micro"
+  engine         = "mysql"
+  engine_version = "8.0"
+  db_name        = "qlsv_system"
+  username       = var.db_username
+  password       = random_password.db_password.result
+
   publicly_accessible    = false
   db_subnet_group_name   = aws_db_subnet_group.db.name
   vpc_security_group_ids = [aws_security_group.db.id]
-  
-  allocated_storage      = 20
-  storage_type           = "gp2"
-# ← THÊM DÒNG NÀY
+
+  allocated_storage = 20
+  storage_type      = "gp2"
+  # ← THÊM DÒNG NÀY
   enabled_cloudwatch_logs_exports = ["error", "slowquery"]
-  
-  skip_final_snapshot    = true 
+
+  skip_final_snapshot = true
   tags = {
     Name        = "${local.name_prefix}-db"
     Environment = var.env
@@ -62,7 +62,7 @@ resource "aws_ssm_parameter" "db_user" {
 
 resource "aws_ssm_parameter" "db_pass" {
   name  = "/qlsv/${var.env}/db/password"
-  type  = "SecureString"       
+  type  = "SecureString"
   value = random_password.db_password.result
 }
 
