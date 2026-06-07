@@ -1,13 +1,22 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+TERRAFORM_DIR="$REPO_ROOT/environments/dev"
+SCHEMA_FILE="$REPO_ROOT/Web-Project-1/database/complete_setup.sql"
+
 echo "🗄️ Database Deployment Script"
 echo "================================"
 
+if ! command -v mysql &> /dev/null; then
+    echo "mysql client not found. Install it first, e.g. sudo apt-get install -y mysql-client"
+    exit 1
+fi
 # Load DB credentials from Terraform outputs
-DB_HOST=$(cd ../../environments/dev && terraform output -raw db_endpoint)
+DB_HOST=$(cd "$TERRAFORM_DIR" && terraform output -raw db_endpoint)
 DB_USER="admin"
-DB_PASS=$(cd ../../environments/dev && terraform output -raw db_password)
+DB_PASS=$(cd "$TERRAFORM_DIR" && terraform output -raw db_password)
 DB_NAME="qlsv_system"
 
 echo "📍 DB Host: $DB_HOST"
@@ -27,7 +36,7 @@ echo "✅ Connection successful!"
 # Deploy schema
 echo ""
 echo "📦 Deploying database schema..."
-mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" < ../../Web-Project-1/database/complete_setup.sql
+mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" < "$SCHEMA_FILE"
 
 echo ""
 echo "✅ Database deployment complete!"
