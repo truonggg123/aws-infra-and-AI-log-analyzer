@@ -1,7 +1,7 @@
 plugin: amazon.aws.aws_ec2
 
-# regions:
-#   - "{{ lookup('env', 'AWS_REGION') | default('ap-southeast-1', true) }}"
+regions:
+  - "{{ lookup('env', 'AWS_REGION') | default('ap-southeast-1', true) }}"
 
 filters:
   instance-state-name: running
