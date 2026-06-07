@@ -5,7 +5,7 @@
 # ── S3 Bucket for CloudTrail Logs ──────────────────────────
 
 resource "aws_s3_bucket" "cloudtrail" {
-  bucket        = "${local.name_prefix}-cloudtrail-logs"
+  bucket        = "${local.name_prefix}-cloudtrail-logs-${local.account_id}"
   force_destroy = true
 
   tags = {

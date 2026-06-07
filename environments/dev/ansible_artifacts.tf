@@ -1,10 +1,10 @@
 resource "aws_s3_bucket" "ansible_ssm_temp" {
-  bucket = "${var.project}-${var.env}-${var.region_short}-ansible-ssm-temp"
+  bucket = "${local.name_prefix}-ansible-ssm-temp-${local.account_id}"
 
   force_destroy = true
 
   tags = {
-    Name        = "${var.project}-${var.env}-ansible-ssm-temp"
+    Name        = "${local.name_prefix}-ansible-ssm-temp"
     Project     = var.project
     Environment = var.env
     Purpose     = "ansible-ssm-temp"
