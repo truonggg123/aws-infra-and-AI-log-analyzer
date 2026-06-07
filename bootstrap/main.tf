@@ -15,7 +15,7 @@ provider "aws" {
 
 # Block 3 — S3 bucket (naming follow convention, prevent_destroy, tags đầy đủ)
 resource "aws_s3_bucket" "tfstate" {
-  bucket = "p1-bootstrap-apse1-tfstate"
+  bucket = "p1-bootstrap-apse1-tfstate-240933274359"
 
   lifecycle {
     prevent_destroy = true

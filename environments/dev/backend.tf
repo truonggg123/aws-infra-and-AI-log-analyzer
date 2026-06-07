@@ -10,7 +10,7 @@ terraform {
     }
   }
   backend "s3" {
-    bucket = "p1-bootstrap-apse1-tfstate"
+    bucket = "p1-bootstrap-apse1-tfstate-240933274359"
     key = "dev/terraform.tfstate"
     region = "ap-southeast-1"
     encrypt = true
