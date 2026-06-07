@@ -22,10 +22,10 @@ compose:
   ansible_python_interpreter: "'/usr/bin/python3'"
 
 keyed_groups:
-  - key: tags.Role
+  - key: ec2_tags.Role
     prefix: role
-  - key: tags.Environment
+  - key: ec2_tags.Environment
     prefix: env
 
 groups:
-  app: tags.Role == 'app'
+  app: ec2_tags.Role == 'app'
